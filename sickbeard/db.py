@@ -30,6 +30,7 @@ from sickbeard import encodingKludge as ek
 from sickbeard import logger
 from sickbeard.exceptions import ex
 from sickbeard.common import cpu_presets
+from itertools import ifilter
 
 db_lock = threading.Lock()
 
@@ -113,6 +114,8 @@ class DBConnection:
     def mass_action(self, querylist, logTransaction=False):
 
         with db_lock:
+            # remove None types
+            querylist = [i for i in querylist if i!=None]
 
             if querylist == None:
                 return
@@ -120,8 +123,13 @@ class DBConnection:
             sqlResult = []
             attempt = 0
 
+            # Transaction
+            self.connection.isolation_level = None
+            self.connection.execute('begin')
+
             while attempt < 5:
                 try:
+
                     for qu in querylist:
                         if len(qu) == 1:
                             if logTransaction:
@@ -131,7 +139,9 @@ class DBConnection:
                             if logTransaction:
                                 logger.log(qu[0] + " with args " + str(qu[1]), logger.DEBUG)
                             sqlResult.append(self.connection.execute(qu[0], qu[1]))
-                    self.connection.commit()
+
+                    self.connection.execute('commit')
+
                     logger.log(u"Transaction with " + str(len(querylist)) + u" queries executed", logger.DEBUG)
                     return sqlResult
                 except sqlite3.OperationalError, e:
