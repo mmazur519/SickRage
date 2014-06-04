@@ -640,7 +640,7 @@ class Manage:
         return _munge(t)
 
     @cherrypy.expose
-    def massEditSubmit(self, paused=None, anime=None, flatten_folders=None, quality_preset=False, subtitles=None,
+    def massEditSubmit(self, paused=None, anime=None, scene=None, flatten_folders=None, quality_preset=False, subtitles=None,
                        anyQualities=[], bestQualities=[], toEdit=None, *args, **kwargs):
 
         dir_map = {}
@@ -680,6 +680,12 @@ class Manage:
                 new_anime = True if anime == 'enable' else False
             new_anime = 'on' if new_anime else 'off'
 
+            if scene == 'keep':
+                new_scene = showObj.is_scene
+            else:
+                new_scene = True if scene == 'enable' else False
+            new_scene = 'on' if new_scene else 'off'
+
             if flatten_folders == 'keep':
                 new_flatten_folders = showObj.flatten_folders
             else:
@@ -699,7 +705,8 @@ class Manage:
             exceptions_list = []
 
             curErrors += Home().editShow(curShow, new_show_dir, anyQualities, bestQualities, exceptions_list,
-                                         new_flatten_folders, new_paused, subtitles=new_subtitles, anime=new_anime, directCall=True)
+                                         new_flatten_folders, new_paused, subtitles=new_subtitles, anime=new_anime,
+                                         scene=new_scene, directCall=True)
 
             if curErrors:
                 logger.log(u"Errors: " + str(curErrors), logger.ERROR)
@@ -1047,7 +1054,7 @@ class ConfigGeneral:
                     web_password=None, version_notify=None, enable_https=None, https_cert=None, https_key=None,
                     handle_reverse_proxy=None, sort_article=None, auto_update=None, proxy_setting=None,
                     anon_redirect=None, git_path=None, calendar_unprotected=None,
-                    fuzzy_dating=None, trim_zero=None, date_preset=None, time_preset=None,
+                    fuzzy_dating=None, trim_zero=None, date_preset=None, date_preset_na=None, time_preset=None,
                     indexer_timeout=None):
 
         results = []
@@ -1081,6 +1088,7 @@ class ConfigGeneral:
 
         if date_preset:
             sickbeard.DATE_PRESET = date_preset
+            discarded_na_data = date_preset_na
 
         if indexer_default:
             sickbeard.INDEXER_DEFAULT = config.to_int(indexer_default)
@@ -3210,7 +3218,7 @@ class Home:
         if directCall:
             do_update_exceptions = False
         else:
-            if directCall or set(exceptions_list) == set(showObj.exceptions):
+            if set(exceptions_list) == set(showObj.exceptions):
                 do_update_exceptions = False
             else:
                 do_update_exceptions = True
@@ -3277,19 +3285,37 @@ class Home:
                 except exceptions.CantRefreshException, e:
                     errors.append("Unable to refresh this show: " + ex(e))
 
-            showObj.paused = paused
+            if showObj.paused != paused:
+                showObj.paused = paused
 
-            # if this routine was called via the mass edit, do not change the options that are not passed
-            if not directCall:
+            if showObj.air_by_date != air_by_date:
                 showObj.air_by_date = air_by_date
+
+            if showObj.scene != scene:
                 showObj.scene = scene
+
+            if showObj.sports != sports:
                 showObj.sports = sports
+
+            if showObj.anime != anime:
                 showObj.anime = anime
+
+            if showObj.subtitles != subtitles:
                 showObj.subtitles = subtitles
+
+            if showObj.lang != indexer_lang:
                 showObj.lang = indexer_lang
+
+            if showObj.dvdorder != dvdorder:
                 showObj.dvdorder = dvdorder
+
+            if showObj.archive_firstmatch != archive_firstmatch:
                 showObj.archive_firstmatch = archive_firstmatch
+
+            if rls_ignore_words and showObj.rls_ignore_words != rls_ignore_words.strip():
                 showObj.rls_ignore_words = rls_ignore_words.strip()
+
+            if rls_require_words and showObj.rls_require_words != rls_require_words.strip():
                 showObj.rls_require_words = rls_require_words.strip()
 
             # if we change location clear the db of episodes, change it, write to db, and rescan
