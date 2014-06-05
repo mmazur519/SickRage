@@ -101,7 +101,7 @@ class DBConnection:
                     if "unable to open database file" in e.args[0] or "database is locked" in e.args[0]:
                         logger.log(u"DB error: " + ex(e), logger.WARNING)
                         attempt += 1
-                        time.sleep(cpu_presets[sickbeard.CPU_PRESET])
+                        time.sleep(0.02)
                     else:
                         logger.log(u"DB error: " + ex(e), logger.ERROR)
                         raise
@@ -140,7 +140,7 @@ class DBConnection:
                                 logger.log(qu[0] + " with args " + str(qu[1]), logger.DEBUG)
                             sqlResult.append(self.connection.execute(qu[0], qu[1]))
 
-                    self.connection.execute('COMMIT')
+                    self.connection.commit()
 
                     logger.log(u"Transaction with " + str(len(querylist)) + u" queries executed", logger.DEBUG)
                     return sqlResult
@@ -151,7 +151,7 @@ class DBConnection:
                     if "unable to open database file" in e.args[0] or "database is locked" in e.args[0]:
                         logger.log(u"DB error: " + ex(e), logger.WARNING)
                         attempt += 1
-                        time.sleep(cpu_presets[sickbeard.CPU_PRESET])
+                        time.sleep(0.02)
                     else:
                         logger.log(u"DB error: " + ex(e), logger.ERROR)
                         raise
@@ -189,7 +189,7 @@ class DBConnection:
                     if "unable to open database file" in e.args[0] or "database is locked" in e.args[0]:
                         logger.log(u"DB error: " + ex(e), logger.WARNING)
                         attempt += 1
-                        time.sleep(cpu_presets[sickbeard.CPU_PRESET])
+                        time.sleep(0.02)
                     else:
                         logger.log(u"DB error: " + ex(e), logger.ERROR)
                         raise
