@@ -82,9 +82,7 @@ def _handle_reverse_proxy():
     if sickbeard.HANDLE_REVERSE_PROXY:
         cherrypy.lib.cptools.proxy()
 
-
 cherrypy.tools.handle_reverse_proxy = cherrypy.Tool('before_handler', _handle_reverse_proxy)
-
 
 class PageTemplate(Template):
     def __init__(self, *args, **KWs):
@@ -2975,9 +2973,6 @@ class Home:
                 return _genericMessage("Error", "Show not in show list")
 
         showObj.exceptions = scene_exceptions.get_scene_exceptions(showObj.indexerid)
-
-        # Update scene numbering in DB
-        sickbeard.scene_numbering.xem_refresh(showObj.indexerid, showObj.indexer)
 
         myDB = db.DBConnection()
 
