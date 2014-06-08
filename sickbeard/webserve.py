@@ -28,6 +28,7 @@ import datetime
 import random
 
 from Cheetah.Template import Template
+from cherrypy.lib.static import serve_fileobj
 import cherrypy
 import cherrypy.lib
 import cherrypy.lib.cptools
@@ -81,6 +82,7 @@ from lib import adba
 def _handle_reverse_proxy():
     if sickbeard.HANDLE_REVERSE_PROXY:
         cherrypy.lib.cptools.proxy()
+
 
 cherrypy.tools.handle_reverse_proxy = cherrypy.Tool('before_handler', _handle_reverse_proxy)
 
@@ -205,7 +207,7 @@ class ManageSearches:
     @cherrypy.expose
     def index(self):
         t = PageTemplate(file="manage_manageSearches.tmpl")
-        #t.backlogPI = sickbeard.backlogSearchScheduler.action.getProgressIndicator()
+        # t.backlogPI = sickbeard.backlogSearchScheduler.action.getProgressIndicator()
         t.backlogPaused = sickbeard.searchQueueScheduler.action.is_backlog_paused()  # @UndefinedVariable
         t.backlogRunning = sickbeard.searchQueueScheduler.action.is_backlog_in_progress()  # @UndefinedVariable
         t.dailySearchStatus = sickbeard.dailySearchScheduler.action.amActive  # @UndefinedVariable
@@ -280,15 +282,14 @@ class Manage:
 
     @cherrypy.expose
     def showEpisodeStatuses(self, indexer_id, whichStatus):
-        myDB = db.DBConnection()
-
         status_list = [int(whichStatus)]
         if status_list[0] == SNATCHED:
             status_list = Quality.SNATCHED + Quality.SNATCHED_PROPER
 
-        cur_show_results = myDB.select(
-            "SELECT season, episode, name FROM tv_episodes WHERE showid = ? AND season != 0 AND status IN (" + ','.join(
-                ['?'] * len(status_list)) + ")", [int(indexer_id)] + status_list)
+        with db.DBConnection() as myDB:
+            cur_show_results = myDB.select(
+                "SELECT season, episode, name FROM tv_episodes WHERE showid = ? AND season != 0 AND status IN (" + ','.join(
+                    ['?'] * len(status_list)) + ")", [int(indexer_id)] + status_list)
 
         result = {}
         for cur_result in cur_show_results:
@@ -321,12 +322,12 @@ class Manage:
         if not status_list:
             return _munge(t)
 
-        myDB = db.DBConnection()
-        status_results = myDB.select(
-            "SELECT show_name, tv_shows.indexer_id as indexer_id FROM tv_episodes, tv_shows WHERE tv_episodes.status IN (" + ','.join(
-                ['?'] * len(
-                    status_list)) + ") AND season != 0 AND tv_episodes.showid = tv_shows.indexer_id ORDER BY show_name",
-            status_list)
+        with db.DBConnection() as myDB:
+            status_results = myDB.select(
+                "SELECT show_name, tv_shows.indexer_id as indexer_id FROM tv_episodes, tv_shows WHERE tv_episodes.status IN (" + ','.join(
+                    ['?'] * len(
+                        status_list)) + ") AND season != 0 AND tv_episodes.showid = tv_shows.indexer_id ORDER BY show_name",
+                status_list)
 
         ep_counts = {}
         show_names = {}
@@ -369,28 +370,26 @@ class Manage:
 
             to_change[indexer_id].append(what)
 
-        myDB = db.DBConnection()
+        with db.DBConnection() as myDB:
+            for cur_indexer_id in to_change:
 
-        for cur_indexer_id in to_change:
+                # get a list of all the eps we want to change if they just said "all"
+                if 'all' in to_change[cur_indexer_id]:
+                    all_eps_results = myDB.select("SELECT season, episode FROM tv_episodes WHERE status IN (" + ','.join(
+                        ['?'] * len(status_list)) + ") AND season != 0 AND showid = ?", status_list + [cur_indexer_id])
+                    all_eps = [str(x["season"]) + 'x' + str(x["episode"]) for x in all_eps_results]
+                    to_change[cur_indexer_id] = all_eps
 
-            # get a list of all the eps we want to change if they just said "all"
-            if 'all' in to_change[cur_indexer_id]:
-                all_eps_results = myDB.select("SELECT season, episode FROM tv_episodes WHERE status IN (" + ','.join(
-                    ['?'] * len(status_list)) + ") AND season != 0 AND showid = ?", status_list + [cur_indexer_id])
-                all_eps = [str(x["season"]) + 'x' + str(x["episode"]) for x in all_eps_results]
-                to_change[cur_indexer_id] = all_eps
-
-            Home().setStatus(cur_indexer_id, '|'.join(to_change[cur_indexer_id]), newStatus, direct=True)
+                Home().setStatus(cur_indexer_id, '|'.join(to_change[cur_indexer_id]), newStatus, direct=True)
 
         redirect('/manage/episodeStatuses')
 
     @cherrypy.expose
     def showSubtitleMissed(self, indexer_id, whichSubs):
-        myDB = db.DBConnection()
-
-        cur_show_results = myDB.select(
-            "SELECT season, episode, name, subtitles FROM tv_episodes WHERE showid = ? AND season != 0 AND status LIKE '%4'",
-            [int(indexer_id)])
+        with db.DBConnection() as myDB:
+            cur_show_results = myDB.select(
+                "SELECT season, episode, name, subtitles FROM tv_episodes WHERE showid = ? AND season != 0 AND status LIKE '%4'",
+                [int(indexer_id)])
 
         result = {}
         for cur_result in cur_show_results:
@@ -428,9 +427,9 @@ class Manage:
         if not whichSubs:
             return _munge(t)
 
-        myDB = db.DBConnection()
-        status_results = myDB.select(
-            "SELECT show_name, tv_shows.indexer_id as indexer_id, tv_episodes.subtitles subtitles FROM tv_episodes, tv_shows WHERE tv_shows.subtitles = 1 AND tv_episodes.status LIKE '%4' AND tv_episodes.season != 0 AND tv_episodes.showid = tv_shows.indexer_id ORDER BY show_name")
+        with db.DBConnection() as myDB:
+            status_results = myDB.select(
+                "SELECT show_name, tv_shows.indexer_id as indexer_id, tv_episodes.subtitles subtitles FROM tv_episodes, tv_shows WHERE tv_shows.subtitles = 1 AND tv_episodes.status LIKE '%4' AND tv_episodes.season != 0 AND tv_episodes.showid = tv_shows.indexer_id ORDER BY show_name")
 
         ep_counts = {}
         show_names = {}
@@ -479,10 +478,10 @@ class Manage:
         for cur_indexer_id in to_download:
             # get a list of all the eps we want to download subtitles if they just said "all"
             if 'all' in to_download[cur_indexer_id]:
-                myDB = db.DBConnection()
-                all_eps_results = myDB.select(
-                    "SELECT season, episode FROM tv_episodes WHERE status LIKE '%4' AND season != 0 AND showid = ?",
-                    [cur_indexer_id])
+                with db.DBConnection() as myDB:
+                    all_eps_results = myDB.select(
+                        "SELECT season, episode FROM tv_episodes WHERE status LIKE '%4' AND season != 0 AND showid = ?",
+                        [cur_indexer_id])
                 to_download[cur_indexer_id] = [str(x["season"]) + 'x' + str(x["episode"]) for x in all_eps_results]
 
             for epResult in to_download[cur_indexer_id]:
@@ -509,34 +508,33 @@ class Manage:
         t = PageTemplate(file="manage_backlogOverview.tmpl")
         t.submenu = ManageMenu()
 
-        myDB = db.DBConnection()
-
         showCounts = {}
         showCats = {}
         showSQLResults = {}
 
-        for curShow in sickbeard.showList:
+        with db.DBConnection() as myDB:
+            for curShow in sickbeard.showList:
 
-            epCounts = {}
-            epCats = {}
-            epCounts[Overview.SKIPPED] = 0
-            epCounts[Overview.WANTED] = 0
-            epCounts[Overview.QUAL] = 0
-            epCounts[Overview.GOOD] = 0
-            epCounts[Overview.UNAIRED] = 0
-            epCounts[Overview.SNATCHED] = 0
+                epCounts = {}
+                epCats = {}
+                epCounts[Overview.SKIPPED] = 0
+                epCounts[Overview.WANTED] = 0
+                epCounts[Overview.QUAL] = 0
+                epCounts[Overview.GOOD] = 0
+                epCounts[Overview.UNAIRED] = 0
+                epCounts[Overview.SNATCHED] = 0
 
-            sqlResults = myDB.select("SELECT * FROM tv_episodes WHERE showid = ? ORDER BY season DESC, episode DESC",
-                                     [curShow.indexerid])
+                sqlResults = myDB.select("SELECT * FROM tv_episodes WHERE showid = ? ORDER BY season DESC, episode DESC",
+                                         [curShow.indexerid])
 
-            for curResult in sqlResults:
-                curEpCat = curShow.getOverview(int(curResult["status"]))
-                epCats[str(curResult["season"]) + "x" + str(curResult["episode"])] = curEpCat
-                epCounts[curEpCat] += 1
+                for curResult in sqlResults:
+                    curEpCat = curShow.getOverview(int(curResult["status"]))
+                    epCats[str(curResult["season"]) + "x" + str(curResult["episode"])] = curEpCat
+                    epCounts[curEpCat] += 1
 
-            showCounts[curShow.indexerid] = epCounts
-            showCats[curShow.indexerid] = epCats
-            showSQLResults[curShow.indexerid] = sqlResults
+                showCounts[curShow.indexerid] = epCounts
+                showCats[curShow.indexerid] = epCats
+                showSQLResults[curShow.indexerid] = sqlResults
 
         t.showCounts = showCounts
         t.showCats = showCats
@@ -638,7 +636,8 @@ class Manage:
         return _munge(t)
 
     @cherrypy.expose
-    def massEditSubmit(self, paused=None, anime=None, scene=None, flatten_folders=None, quality_preset=False, subtitles=None,
+    def massEditSubmit(self, paused=None, anime=None, scene=None, flatten_folders=None, quality_preset=False,
+                       subtitles=None,
                        anyQualities=[], bestQualities=[], toEdit=None, *args, **kwargs):
 
         dir_map = {}
@@ -855,17 +854,17 @@ class Manage:
     @cherrypy.expose
     def failedDownloads(self, limit=100, toRemove=None):
 
-        myDB = db.DBConnection("failed.db")
+        with db.DBConnection('failed.db') as myDB:
 
-        if limit == "0":
-            sqlResults = myDB.select("SELECT * FROM failed")
-        else:
-            sqlResults = myDB.select("SELECT * FROM failed LIMIT ?", [limit])
+            if limit == "0":
+                sqlResults = myDB.select("SELECT * FROM failed")
+            else:
+                sqlResults = myDB.select("SELECT * FROM failed LIMIT ?", [limit])
 
-        toRemove = toRemove.split("|") if toRemove is not None else []
+            toRemove = toRemove.split("|") if toRemove is not None else []
 
-        for release in toRemove:
-            myDB.action('DELETE FROM failed WHERE release = ?', [release])
+            for release in toRemove:
+                myDB.action('DELETE FROM failed WHERE release = ?', [release])
 
         if toRemove:
             raise cherrypy.HTTPRedirect('/manage/failedDownloads/')
@@ -882,16 +881,15 @@ class History:
     @cherrypy.expose
     def index(self, limit=100):
 
-        myDB = db.DBConnection()
-
-        #sqlResults = myDB.select("SELECT h.*, show_name, name FROM history h, tv_shows s, tv_episodes e WHERE h.showid=s.indexer_id AND h.showid=e.showid AND h.season=e.season AND h.episode=e.episode ORDER BY date DESC LIMIT "+str(numPerPage*(p-1))+", "+str(numPerPage))
-        if limit == "0":
-            sqlResults = myDB.select(
-                "SELECT h.*, show_name FROM history h, tv_shows s WHERE h.showid=s.indexer_id ORDER BY date DESC")
-        else:
-            sqlResults = myDB.select(
-                "SELECT h.*, show_name FROM history h, tv_shows s WHERE h.showid=s.indexer_id ORDER BY date DESC LIMIT ?",
-                [limit])
+        # sqlResults = myDB.select("SELECT h.*, show_name, name FROM history h, tv_shows s, tv_episodes e WHERE h.showid=s.indexer_id AND h.showid=e.showid AND h.season=e.season AND h.episode=e.episode ORDER BY date DESC LIMIT "+str(numPerPage*(p-1))+", "+str(numPerPage))
+        with db.DBConnection() as myDB:
+            if limit == "0":
+                sqlResults = myDB.select(
+                    "SELECT h.*, show_name FROM history h, tv_shows s WHERE h.showid=s.indexer_id ORDER BY date DESC")
+            else:
+                sqlResults = myDB.select(
+                    "SELECT h.*, show_name FROM history h, tv_shows s WHERE h.showid=s.indexer_id ORDER BY date DESC LIMIT ?",
+                    [limit])
 
         history = {'show_id': 0, 'season': 0, 'episode': 0, 'quality': 0,
                    'actions': [{'time': '', 'action': '', 'provider': ''}]}
@@ -926,9 +924,9 @@ class History:
             else:
                 index = [i for i, dict in enumerate(compact) \
                          if dict['show_id'] == sql_result['showid'] \
-                                and dict['season'] == sql_result['season'] \
-                                and dict['episode'] == sql_result['episode']
-                    and dict['quality'] == sql_result['quality']][0]
+                         and dict['season'] == sql_result['season'] \
+                         and dict['episode'] == sql_result['episode']
+                         and dict['quality'] == sql_result['quality']][0]
 
                 action = {}
                 history = compact[index]
@@ -955,8 +953,9 @@ class History:
     @cherrypy.expose
     def clearHistory(self):
 
-        myDB = db.DBConnection()
-        myDB.action("DELETE FROM history WHERE 1=1")
+        with db.DBConnection() as myDB:
+            myDB.action("DELETE FROM history WHERE 1=1")
+
         ui.notifications.message('History cleared')
         redirect("/history/")
 
@@ -964,9 +963,10 @@ class History:
     @cherrypy.expose
     def trimHistory(self):
 
-        myDB = db.DBConnection()
-        myDB.action("DELETE FROM history WHERE date < " + str(
-            (datetime.datetime.today() - datetime.timedelta(days=30)).strftime(history.dateFormat)))
+        with db.DBConnection() as myDB:
+            myDB.action("DELETE FROM history WHERE date < " + str(
+                (datetime.datetime.today() - datetime.timedelta(days=30)).strftime(history.dateFormat)))
+
         ui.notifications.message('Removed history entries greater than 30 days old')
         redirect("/history/")
 
@@ -1267,7 +1267,6 @@ class ConfigPostProcessing:
         sickbeard.NAMING_CUSTOM_ABD = config.checkbox_to_value(naming_custom_abd)
         sickbeard.NAMING_CUSTOM_SPORTS = config.checkbox_to_value(naming_custom_sports)
         sickbeard.NAMING_STRIP_YEAR = config.checkbox_to_value(naming_strip_year)
-        sickbeard.NAMING_ANIME = config.checkbox_to_value(naming_anime)
         sickbeard.USE_FAILED_DOWNLOADS = config.checkbox_to_value(use_failed_downloads)
         sickbeard.DELETE_FAILED = config.checkbox_to_value(delete_failed)
         sickbeard.SKIP_REMOVED_FILES = config.checkbox_to_value(skip_removed_files)
@@ -1288,12 +1287,16 @@ class ConfigPostProcessing:
         sickbeard.metadata_provider_dict['TIVO'].set_config(sickbeard.METADATA_TIVO)
         sickbeard.metadata_provider_dict['Mede8er'].set_config(sickbeard.METADATA_MEDE8ER)
 
-        if self.isNamingValid(naming_pattern, naming_multi_ep) != "invalid":
+        if self.isNamingValid(naming_pattern, naming_multi_ep, anime_type=naming_anime) != "invalid":
             sickbeard.NAMING_PATTERN = naming_pattern
             sickbeard.NAMING_MULTI_EP = int(naming_multi_ep)
+            sickbeard.NAMING_ANIME = int(naming_anime)
             sickbeard.NAMING_FORCE_FOLDERS = naming.check_force_season_folders()
         else:
-            results.append("You tried saving an invalid naming config, not saving your naming settings")
+            if int(naming_anime) in [1, 2]:
+                results.append("You tried saving an invalid anime naming config, not saving your naming settings")
+            else:
+                results.append("You tried saving an invalid naming config, not saving your naming settings")
 
         if self.isNamingValid(naming_abd_pattern, None, abd=True) != "invalid":
             sickbeard.NAMING_ABD_PATTERN = naming_abd_pattern
@@ -1320,21 +1323,30 @@ class ConfigPostProcessing:
         redirect("/config/postProcessing/")
 
     @cherrypy.expose
-    def testNaming(self, pattern=None, multi=None, abd=False, sports=False, anime=None):
+    def testNaming(self, pattern=None, multi=None, abd=False, sports=False, anime_type=None):
 
         if multi is not None:
             multi = int(multi)
 
-        result = naming.test_name(pattern, multi, abd, sports, anime)
+        if anime_type is not None:
+            anime_type = int(anime_type)
+
+        result = naming.test_name(pattern, multi, abd, sports, anime_type)
 
         result = ek.ek(os.path.join, result['dir'], result['name'])
 
         return result
 
     @cherrypy.expose
-    def isNamingValid(self, pattern=None, multi=None, abd=False, sports=False):
+    def isNamingValid(self, pattern=None, multi=None, abd=False, sports=False, anime_type=None):
         if pattern is None:
             return "invalid"
+
+        if multi is not None:
+            multi = int(multi)
+
+        if anime_type is not None:
+            anime_type = int(anime_type)
 
         # air by date shows just need one check, we don't need to worry about season folders
         if abd:
@@ -1348,10 +1360,10 @@ class ConfigPostProcessing:
 
         else:
             # check validity of single and multi ep cases for the whole path
-            is_valid = naming.check_valid_naming(pattern, multi)
+            is_valid = naming.check_valid_naming(pattern, multi, anime_type)
 
             # check validity of single and multi ep cases for only the file name
-            require_season_folders = naming.check_force_season_folders(pattern, multi)
+            require_season_folders = naming.check_force_season_folders(pattern, multi, anime_type)
 
         if is_valid and not require_season_folders:
             return "valid"
@@ -1424,7 +1436,6 @@ class ConfigProviders:
             return providerDict[name].getID() + '|' + providerDict[name].configStr()
 
         else:
-
             newProvider = newznab.NewznabProvider(name, url, key=key)
             sickbeard.newznabProviderList.append(newProvider)
             return newProvider.getID() + '|' + newProvider.configStr()
@@ -1584,7 +1595,8 @@ class ConfigProviders:
             curProvider, curEnabled = curProviderStr.split(':')
             curEnabled = config.to_int(curEnabled)
 
-            curProvObj = [x for x in sickbeard.providers.sortedProviderList() if x.getID() == curProvider and hasattr(x, 'enabled')]
+            curProvObj = [x for x in sickbeard.providers.sortedProviderList() if
+                          x.getID() == curProvider and hasattr(x, 'enabled')]
             if curProvObj:
                 curProvObj[0].enabled = bool(curEnabled)
 
@@ -2013,8 +2025,8 @@ class ConfigSubtitles:
 
         redirect("/config/subtitles/")
 
-class ConfigAnime:
 
+class ConfigAnime:
     @cherrypy.expose
     def index(self):
 
@@ -2023,7 +2035,8 @@ class ConfigAnime:
         return _munge(t)
 
     @cherrypy.expose
-    def saveAnime(self, use_anidb=None, anidb_username=None, anidb_password=None, anidb_use_mylist=None, split_home=None):
+    def saveAnime(self, use_anidb=None, anidb_username=None, anidb_password=None, anidb_use_mylist=None,
+                  split_home=None):
 
         results = []
 
@@ -2054,11 +2067,12 @@ class ConfigAnime:
             for x in results:
                 logger.log(x, logger.ERROR)
             ui.notifications.error('Error(s) Saving Configuration',
-                        '<br />\n'.join(results))
+                                   '<br />\n'.join(results))
         else:
-            ui.notifications.message('Configuration Saved', ek.ek(os.path.join, sickbeard.CONFIG_FILE) )
+            ui.notifications.message('Configuration Saved', ek.ek(os.path.join, sickbeard.CONFIG_FILE))
 
         redirect("/config/anime/")
+
 
 class Config:
     @cherrypy.expose
@@ -2081,6 +2095,7 @@ class Config:
     subtitles = ConfigSubtitles()
 
     anime = ConfigAnime()
+
 
 def haveXBMC():
     return sickbeard.USE_XBMC and sickbeard.XBMC_UPDATE_LIBRARY
@@ -2179,6 +2194,8 @@ class NewHomeAddShows:
         if not lang or lang == 'null':
             lang = "en"
 
+        search_term = search_term.encode('utf-8')
+
         results = {}
         final_results = []
 
@@ -2190,7 +2207,7 @@ class NewHomeAddShows:
             t = sickbeard.indexerApi(indexer).indexer(**lINDEXER_API_PARMS)
 
             logger.log("Searching for Show with searchterm: %s on Indexer: %s" % (
-            search_term, sickbeard.indexerApi(indexer).name), logger.DEBUG)
+                search_term, sickbeard.indexerApi(indexer).name), logger.DEBUG)
             try:
                 # add search results
                 results.setdefault(indexer, []).extend(t[search_term])
@@ -2199,8 +2216,7 @@ class NewHomeAddShows:
 
         map(final_results.extend,
             ([[sickbeard.indexerApi(id).name, id, sickbeard.indexerApi(id).config["show_url"], int(show['id']),
-               show['seriesname'], show['firstaired']] for show in shows] for id, shows in
-             results.items()))
+               show['seriesname'], show['firstaired']] for show in shows] for id, shows in results.items()))
 
         lang_id = sickbeard.indexerApi().config['langabbv_to_id'][lang]
         return json.dumps({'results': final_results, 'langid': lang_id})
@@ -2209,8 +2225,6 @@ class NewHomeAddShows:
     def massAddTable(self, rootDir=None):
         t = PageTemplate(file="home_massAddTable.tmpl")
         t.submenu = HomeMenu()
-
-        myDB = db.DBConnection()
 
         if not rootDir:
             return "No folders selected."
@@ -2234,54 +2248,55 @@ class NewHomeAddShows:
 
         dir_list = []
 
-        for root_dir in root_dirs:
-            try:
-                file_list = ek.ek(os.listdir, root_dir)
-            except:
-                continue
-
-            for cur_file in file_list:
-
-                cur_path = ek.ek(os.path.normpath, ek.ek(os.path.join, root_dir, cur_file))
-                if not ek.ek(os.path.isdir, cur_path):
+        with db.DBConnection() as myDB:
+            for root_dir in root_dirs:
+                try:
+                    file_list = ek.ek(os.listdir, root_dir)
+                except:
                     continue
 
-                cur_dir = {
-                    'dir': cur_path,
-                    'display_dir': '<b>' + ek.ek(os.path.dirname, cur_path) + os.sep + '</b>' + ek.ek(os.path.basename,
-                                                                                                      cur_path),
-                }
+                for cur_file in file_list:
 
-                # see if the folder is in XBMC already
-                dirResults = myDB.select("SELECT * FROM tv_shows WHERE location = ?", [cur_path])
+                    cur_path = ek.ek(os.path.normpath, ek.ek(os.path.join, root_dir, cur_file))
+                    if not ek.ek(os.path.isdir, cur_path):
+                        continue
 
-                if dirResults:
-                    cur_dir['added_already'] = True
-                else:
-                    cur_dir['added_already'] = False
+                    cur_dir = {
+                        'dir': cur_path,
+                        'display_dir': '<b>' + ek.ek(os.path.dirname, cur_path) + os.sep + '</b>' + ek.ek(os.path.basename,
+                                                                                                          cur_path),
+                    }
 
-                dir_list.append(cur_dir)
+                    # see if the folder is in XBMC already
+                    dirResults = myDB.select("SELECT * FROM tv_shows WHERE location = ?", [cur_path])
 
-                indexer_id = show_name = indexer = None
-                for cur_provider in sickbeard.metadata_provider_dict.values():
-                    (indexer_id, show_name, indexer) = cur_provider.retrieveShowMetadata(cur_path)
-                    if show_name: break
+                    if dirResults:
+                        cur_dir['added_already'] = True
+                    else:
+                        cur_dir['added_already'] = False
 
-                # default to TVDB if indexer was not detected
-                if show_name and not (indexer and indexer_id):
-                    (sn, idx, id) = helpers.searchIndexerForShowID(show_name, indexer, indexer_id)
+                    dir_list.append(cur_dir)
 
-                    # set indexer and indexer_id from found info
-                    if indexer is None and idx:
-                        indexer = idx
+                    indexer_id = show_name = indexer = None
+                    for cur_provider in sickbeard.metadata_provider_dict.values():
+                        (indexer_id, show_name, indexer) = cur_provider.retrieveShowMetadata(cur_path)
+                        if show_name: break
 
-                    if indexer_id is None and id:
-                        indexer_id = id
+                    # default to TVDB if indexer was not detected
+                    if show_name and not (indexer and indexer_id):
+                        (sn, idx, id) = helpers.searchIndexerForShowID(show_name, indexer, indexer_id)
 
-                cur_dir['existing_info'] = (indexer_id, show_name, indexer)
+                        # set indexer and indexer_id from found info
+                        if indexer is None and idx:
+                            indexer = idx
 
-                if indexer_id and helpers.findCertainShow(sickbeard.showList, indexer_id):
-                    cur_dir['added_already'] = True
+                        if indexer_id is None and id:
+                            indexer_id = id
+
+                    cur_dir['existing_info'] = (indexer_id, show_name, indexer)
+
+                    if indexer_id and helpers.findCertainShow(sickbeard.showList, indexer_id):
+                        cur_dir['added_already'] = True
 
         t.dirList = dir_list
 
@@ -2440,7 +2455,8 @@ class NewHomeAddShows:
 
         # add the show
         sickbeard.showQueueScheduler.action.addShow(indexer, indexer_id, show_dir, int(defaultStatus), newQuality,
-                                                    flatten_folders, subtitles, indexerLang, anime, scene)  # @UndefinedVariable
+                                                    flatten_folders, subtitles, indexerLang, anime,
+                                                    scene)  # @UndefinedVariable
         ui.notifications.message('Show added', 'Adding the specified show into ' + show_dir)
 
         return finishAddShow()
@@ -2530,7 +2546,7 @@ class NewHomeAddShows:
 
 ErrorLogsMenu = [
     {'title': 'Clear Errors', 'path': 'errorlogs/clearerrors/'},
-    #{ 'title': 'View Log',  'path': 'errorlogs/viewlog'  },
+    # { 'title': 'View Log',  'path': 'errorlogs/viewlog'  },
 ]
 
 
@@ -2610,7 +2626,7 @@ class Home:
         if 'callback' in kwargs and '_' in kwargs:
             callback, _ = kwargs['callback'], kwargs['_']
         else:
-            return "Error: Unsupported Request. Send jsonp request with 'callback' variable in the query stiring."
+            return "Error: Unsupported Request. Send jsonp request with 'callback' variable in the query string."
         cherrypy.response.headers['Cache-Control'] = "max-age=0,no-cache,no-store"
         cherrypy.response.headers['Content-Type'] = 'text/javascript'
         cherrypy.response.headers['Access-Control-Allow-Origin'] = '*'
@@ -2625,7 +2641,6 @@ class Home:
     def index(self):
 
         t = PageTemplate(file="home.tmpl")
-
         if sickbeard.ANIME_SPLIT_HOME:
             shows = []
             anime = []
@@ -2634,11 +2649,11 @@ class Home:
                     anime.append(show)
                 else:
                     shows.append(show)
-            t.showlists = [["Shows",shows],
-                           ["Anime",anime]]
+            t.showlists = [["Shows", shows],
+                           ["Anime", anime]]
         else:
-            t.showlists = [["Shows",sickbeard.showList]]
-
+            t.showlists = [["Shows", sickbeard.showList]]
+        
         t.submenu = HomeMenu()
         return _munge(t)
 
@@ -2652,7 +2667,7 @@ class Home:
 
         connection, accesMsg = sab.getSabAccesMethod(host, username, password, apikey)
         if connection:
-            authed, authMsg = sab.testAuthentication(host, username, password, apikey)  #@UnusedVariable
+            authed, authMsg = sab.testAuthentication(host, username, password, apikey)  # @UnusedVariable
             if authed:
                 return "Success. Connected and authenticated"
             else:
@@ -2856,8 +2871,9 @@ class Home:
     def loadShowNotifyLists(self):
         cherrypy.response.headers['Cache-Control'] = "max-age=0,no-cache,no-store"
 
-        mydb = db.DBConnection()
-        rows = mydb.select("SELECT show_id, show_name, notify_list FROM tv_shows ORDER BY show_name ASC")
+        with db.DBConnection() as myDB:
+            rows = myDB.select("SELECT show_id, show_name, notify_list FROM tv_shows ORDER BY show_name ASC")
+
         data = {}
         size = 0
         for r in rows:
@@ -2974,17 +2990,16 @@ class Home:
 
         showObj.exceptions = scene_exceptions.get_scene_exceptions(showObj.indexerid)
 
-        myDB = db.DBConnection()
+        with db.DBConnection() as myDB:
+            seasonResults = myDB.select(
+                "SELECT DISTINCT season FROM tv_episodes WHERE showid = ? ORDER BY season desc",
+                [showObj.indexerid]
+            )
 
-        seasonResults = myDB.select(
-            "SELECT DISTINCT season FROM tv_episodes WHERE showid = ? ORDER BY season desc",
-            [showObj.indexerid]
-        )
-
-        sqlResults = myDB.select(
-            "SELECT * FROM tv_episodes WHERE showid = ? ORDER BY season DESC, episode DESC",
-            [showObj.indexerid]
-        )
+            sqlResults = myDB.select(
+                "SELECT * FROM tv_episodes WHERE showid = ? ORDER BY season DESC, episode DESC",
+                [showObj.indexerid]
+            )
 
         t = PageTemplate(file="displayShow.tmpl")
         t.submenu = [{'title': 'Edit', 'path': 'home/editShow?show=%d' % showObj.indexerid}]
@@ -3071,10 +3086,11 @@ class Home:
                     anime.append(show)
                 else:
                     shows.append(show)
-            t.sortedShowLists = [["Shows",sorted(shows, lambda x, y: cmp(titler(x.name), titler(y.name)))],
-                           ["Anime",sorted(anime, lambda x, y: cmp(titler(x.name), titler(y.name)))]]
+            t.sortedShowLists = [["Shows", sorted(shows, lambda x, y: cmp(titler(x.name), titler(y.name)))],
+                                 ["Anime", sorted(anime, lambda x, y: cmp(titler(x.name), titler(y.name)))]]
         else:
-            t.sortedShowLists = [["Shows",sorted(sickbeard.showList, lambda x, y: cmp(titler(x.name), titler(y.name)))]]
+            t.sortedShowLists = [
+                ["Shows", sorted(sickbeard.showList, lambda x, y: cmp(titler(x.name), titler(y.name)))]]
 
         t.bwl = BlackAndWhiteList(showObj.indexerid)
 
@@ -3093,9 +3109,10 @@ class Home:
 
     @cherrypy.expose
     def plotDetails(self, show, season, episode):
-        result = db.DBConnection().action(
-            "SELECT description FROM tv_episodes WHERE showid = ? AND season = ? AND episode = ?",
-            (int(show), int(season), int(episode))).fetchone()
+        with db.DBConnection() as myDB:
+            result = myDB.action(
+                "SELECT description FROM tv_episodes WHERE showid = ? AND season = ? AND episode = ?",
+                (int(show), int(season), int(episode))).fetchone()
         return result['description'] if result else 'Episode not found.'
 
     @cherrypy.expose
@@ -3209,7 +3226,7 @@ class Home:
         if type(exceptions_list) != list:
             exceptions_list = [exceptions_list]
 
-        #If directCall from mass_edit_update no scene exceptions handling
+        # If directCall from mass_edit_update no scene exceptions handling
         if directCall:
             do_update_exceptions = False
         else:
@@ -3329,7 +3346,7 @@ class Home:
                         except exceptions.CantRefreshException, e:
                             errors.append("Unable to refresh this show:" + ex(e))
                             # grab updated info from TVDB
-                            #showObj.loadEpisodesFromIndexer()
+                            # showObj.loadEpisodesFromIndexer()
                             # rescan the episodes in the new folder
                     except exceptions.NoNFOException:
                         errors.append(
@@ -3555,8 +3572,8 @@ class Home:
                     # mass add to database
                     sql_l.append(epObj.get_sql())
 
-                if sql_l:
-                    myDB = db.DBConnection()
+            if sql_l:
+                with db.DBConnection() as myDB:
                     myDB.mass_action(sql_l)
 
         if int(status) == WANTED:
@@ -3604,7 +3621,7 @@ class Home:
             return _genericMessage("Error", "Show not in show list")
 
         try:
-            show_loc = showObj.location  #@UnusedVariable
+            show_loc = showObj.location  # @UnusedVariable
         except exceptions.ShowDirNotFoundException:
             return _genericMessage("Error", "Can't rename episodes when the show dir is missing.")
 
@@ -3652,37 +3669,36 @@ class Home:
             return _genericMessage("Error", errMsg)
 
         try:
-            show_loc = show_obj.location  #@UnusedVariable
+            show_loc = show_obj.location  # @UnusedVariable
         except exceptions.ShowDirNotFoundException:
             return _genericMessage("Error", "Can't rename episodes when the show dir is missing.")
-
-        myDB = db.DBConnection()
 
         if eps is None:
             redirect("/home/displayShow?show=" + show)
 
-        for curEp in eps.split('|'):
+        with db.DBConnection() as myDB:
+            for curEp in eps.split('|'):
 
-            epInfo = curEp.split('x')
+                epInfo = curEp.split('x')
 
-            # this is probably the worst possible way to deal with double eps but I've kinda painted myself into a corner here with this stupid database
-            ep_result = myDB.select("SELECT * FROM tv_episodes WHERE showid = ? AND season = ? AND episode = ? AND 5=5",
-                                    [show, epInfo[0], epInfo[1]])
-            if not ep_result:
-                logger.log(u"Unable to find an episode for " + curEp + ", skipping", logger.WARNING)
-                continue
-            related_eps_result = myDB.select("SELECT * FROM tv_episodes WHERE location = ? AND episode != ?",
-                                             [ep_result[0]["location"], epInfo[1]])
+                # this is probably the worst possible way to deal with double eps but I've kinda painted myself into a corner here with this stupid database
+                ep_result = myDB.select("SELECT * FROM tv_episodes WHERE showid = ? AND season = ? AND episode = ? AND 5=5",
+                                        [show, epInfo[0], epInfo[1]])
+                if not ep_result:
+                    logger.log(u"Unable to find an episode for " + curEp + ", skipping", logger.WARNING)
+                    continue
+                related_eps_result = myDB.select("SELECT * FROM tv_episodes WHERE location = ? AND episode != ?",
+                                                 [ep_result[0]["location"], epInfo[1]])
 
-            root_ep_obj = show_obj.getEpisode(int(epInfo[0]), int(epInfo[1]))
-            root_ep_obj.relatedEps = []
+                root_ep_obj = show_obj.getEpisode(int(epInfo[0]), int(epInfo[1]))
+                root_ep_obj.relatedEps = []
 
-            for cur_related_ep in related_eps_result:
-                related_ep_obj = show_obj.getEpisode(int(cur_related_ep["season"]), int(cur_related_ep["episode"]))
-                if related_ep_obj not in root_ep_obj.relatedEps:
-                    root_ep_obj.relatedEps.append(related_ep_obj)
+                for cur_related_ep in related_eps_result:
+                    related_ep_obj = show_obj.getEpisode(int(cur_related_ep["season"]), int(cur_related_ep["episode"]))
+                    if related_ep_obj not in root_ep_obj.relatedEps:
+                        root_ep_obj.relatedEps.append(related_ep_obj)
 
-            root_ep_obj.rename()
+                root_ep_obj.rename()
 
         redirect("/home/displayShow?show=" + show)
 
@@ -3705,7 +3721,7 @@ class Home:
 
         # return the correct json value
         if ep_queue_item.success:
-            #Find the quality class for the episode
+            # Find the quality class for the episode
             quality_class = Quality.qualityStrings[Quality.UNKNOWN]
             ep_status, ep_quality = Quality.splitCompositeStatus(ep_obj.status)
             for x in (SD, HD720p, HD1080p):
@@ -3746,7 +3762,8 @@ class Home:
         return json.dumps({'result': status, 'subtitles': ','.join([x for x in ep_obj.subtitles])})
 
     @cherrypy.expose
-    def setSceneNumbering(self, show, indexer, forSeason=None, forEpisode=None, forAbsolute=None, sceneSeason=None, sceneEpisode=None, sceneAbsolute=None):
+    def setSceneNumbering(self, show, indexer, forSeason=None, forEpisode=None, forAbsolute=None, sceneSeason=None,
+                          sceneEpisode=None, sceneAbsolute=None):
 
         # sanitize:
         if forSeason in ['null', '']: forSeason = None
@@ -3800,7 +3817,8 @@ class Home:
             if sceneSeason is not None: sceneSeason = int(sceneSeason)
             if sceneEpisode is not None: sceneEpisode = int(sceneEpisode)
 
-            set_scene_numbering(show, indexer, season=forSeason, episode=forEpisode, sceneSeason=sceneSeason, sceneEpisode=sceneEpisode)
+            set_scene_numbering(show, indexer, season=forSeason, episode=forEpisode, sceneSeason=sceneSeason,
+                                sceneEpisode=sceneEpisode)
 
         if showObj.is_anime:
             sn = get_scene_absolute_numbering(show, indexer, forAbsolute)
@@ -3826,8 +3844,8 @@ class Home:
             return json.dumps({'result': 'failure'})
 
         # create failed segment
-        segment = {season:[ep_obj]}
-        
+        segment = {season: [ep_obj]}
+
         # make a queue item for it and put it on the queue
         ep_queue_item = search_queue.FailedQueueItem(ep_obj.show, segment)
         sickbeard.searchQueueScheduler.action.add_item(ep_queue_item)  # @UndefinedVariable
@@ -3838,7 +3856,7 @@ class Home:
 
         # return the correct json value
         if ep_queue_item.success:
-            #Find the quality class for the episode
+            # Find the quality class for the episode
             quality_class = Quality.qualityStrings[Quality.UNKNOWN]
             ep_status, ep_quality = Quality.splitCompositeStatus(ep_obj.status)
             for x in (SD, HD720p, HD1080p):
@@ -3889,7 +3907,7 @@ class WebInterface:
     @cherrypy.expose
     def showPoster(self, show=None, which=None):
 
-        #Redirect initial poster/banner thumb to default images
+        # Redirect initial poster/banner thumb to default images
         if which[0:6] == 'poster':
             default_image_name = 'poster.png'
         else:
@@ -3976,8 +3994,6 @@ class WebInterface:
     @cherrypy.expose
     def comingEpisodes(self, layout="None"):
 
-        myDB = db.DBConnection()
-
         today1 = datetime.date.today()
         today = today1.toordinal()
         next_week1 = (datetime.date.today() + datetime.timedelta(days=7))
@@ -3986,24 +4002,27 @@ class WebInterface:
 
         done_show_list = []
         qualList = Quality.DOWNLOADED + Quality.SNATCHED + [ARCHIVED, IGNORED]
-        sql_results = myDB.select(
-            "SELECT *, tv_shows.status as show_status FROM tv_episodes, tv_shows WHERE season != 0 AND airdate >= ? AND airdate < ? AND tv_shows.indexer_id = tv_episodes.showid AND tv_episodes.status NOT IN (" + ','.join(
-                ['?'] * len(qualList)) + ")", [today, next_week] + qualList)
-        for cur_result in sql_results:
-            done_show_list.append(int(cur_result["showid"]))
 
-        more_sql_results = myDB.select(
-            "SELECT *, tv_shows.status as show_status FROM tv_episodes outer_eps, tv_shows WHERE season != 0 AND showid NOT IN (" + ','.join(
-                ['?'] * len(
-                    done_show_list)) + ") AND tv_shows.indexer_id = outer_eps.showid AND airdate = (SELECT airdate FROM tv_episodes inner_eps WHERE inner_eps.season != 0 AND inner_eps.showid = outer_eps.showid AND inner_eps.airdate >= ? ORDER BY inner_eps.airdate ASC LIMIT 1) AND outer_eps.status NOT IN (" + ','.join(
-                ['?'] * len(Quality.DOWNLOADED + Quality.SNATCHED)) + ")",
-            done_show_list + [next_week] + Quality.DOWNLOADED + Quality.SNATCHED)
-        sql_results += more_sql_results
+        with db.DBConnection() as myDB:
+            sql_results = myDB.select(
+                "SELECT *, tv_shows.status as show_status FROM tv_episodes, tv_shows WHERE season != 0 AND airdate >= ? AND airdate < ? AND tv_shows.indexer_id = tv_episodes.showid AND tv_episodes.status NOT IN (" + ','.join(
+                    ['?'] * len(qualList)) + ")", [today, next_week] + qualList)
 
-        more_sql_results = myDB.select(
-            "SELECT *, tv_shows.status as show_status FROM tv_episodes, tv_shows WHERE season != 0 AND tv_shows.indexer_id = tv_episodes.showid AND airdate < ? AND airdate >= ? AND tv_episodes.status = ? AND tv_episodes.status NOT IN (" + ','.join(
-                ['?'] * len(qualList)) + ")", [today, recently, WANTED] + qualList)
-        sql_results += more_sql_results
+            for cur_result in sql_results:
+                done_show_list.append(int(cur_result["showid"]))
+
+            more_sql_results = myDB.select(
+                "SELECT *, tv_shows.status as show_status FROM tv_episodes outer_eps, tv_shows WHERE season != 0 AND showid NOT IN (" + ','.join(
+                    ['?'] * len(
+                        done_show_list)) + ") AND tv_shows.indexer_id = outer_eps.showid AND airdate = (SELECT airdate FROM tv_episodes inner_eps WHERE inner_eps.season != 0 AND inner_eps.showid = outer_eps.showid AND inner_eps.airdate >= ? ORDER BY inner_eps.airdate ASC LIMIT 1) AND outer_eps.status NOT IN (" + ','.join(
+                    ['?'] * len(Quality.DOWNLOADED + Quality.SNATCHED)) + ")",
+                done_show_list + [next_week] + Quality.DOWNLOADED + Quality.SNATCHED)
+            sql_results += more_sql_results
+
+            more_sql_results = myDB.select(
+                "SELECT *, tv_shows.status as show_status FROM tv_episodes, tv_shows WHERE season != 0 AND tv_shows.indexer_id = tv_episodes.showid AND airdate < ? AND airdate >= ? AND tv_episodes.status = ? AND tv_episodes.status NOT IN (" + ','.join(
+                    ['?'] * len(qualList)) + ")", [today, recently, WANTED] + qualList)
+            sql_results += more_sql_results
 
         # sort by localtime
         sorts = {
@@ -4023,8 +4042,8 @@ class WebInterface:
         sql_results.sort(sorts[sickbeard.COMING_EPS_SORT])
 
         t = PageTemplate(file="comingEpisodes.tmpl")
-        #        paused_item = { 'title': '', 'path': 'toggleComingEpsDisplayPaused' }
-        #        paused_item['title'] = 'Hide Paused' if sickbeard.COMING_EPS_DISPLAY_PAUSED else 'Show Paused'
+        # paused_item = { 'title': '', 'path': 'toggleComingEpsDisplayPaused' }
+        # paused_item['title'] = 'Hide Paused' if sickbeard.COMING_EPS_DISPLAY_PAUSED else 'Show Paused'
         paused_item = {'title': 'View Paused:', 'path': {'': ''}}
         paused_item['path'] = {'Hide': 'toggleComingEpsDisplayPaused'} if sickbeard.COMING_EPS_DISPLAY_PAUSED else {
             'Show': 'toggleComingEpsDisplayPaused'}
@@ -4075,48 +4094,46 @@ class WebInterface:
         ical += 'X-WR-CALDESC:SickRage\r\n'
         ical += 'PRODID://Sick-Beard Upcoming Episodes//\r\n'
 
-        # Get shows info
-        myDB = db.DBConnection()
-
         # Limit dates
         past_date = (datetime.date.today() + datetime.timedelta(weeks=-52)).toordinal()
         future_date = (datetime.date.today() + datetime.timedelta(weeks=52)).toordinal()
 
         # Get all the shows that are not paused and are currently on air (from kjoconnor Fork)
-        calendar_shows = myDB.select(
-            "SELECT show_name, indexer_id, network, airs, runtime FROM tv_shows WHERE ( status = 'Continuing' OR status = 'Returning Series' ) AND paused != '1'")
-        for show in calendar_shows:
-            # Get all episodes of this show airing between today and next month
-            episode_list = myDB.select(
-                "SELECT indexerid, name, season, episode, description, airdate FROM tv_episodes WHERE airdate >= ? AND airdate < ? AND showid = ?",
-                (past_date, future_date, int(show["indexer_id"])))
+        with db.DBConnection() as myDB:
+            calendar_shows = myDB.select(
+                "SELECT show_name, indexer_id, network, airs, runtime FROM tv_shows WHERE ( status = 'Continuing' OR status = 'Returning Series' ) AND paused != '1'")
+            for show in calendar_shows:
+                # Get all episodes of this show airing between today and next month
+                episode_list = myDB.select(
+                    "SELECT indexerid, name, season, episode, description, airdate FROM tv_episodes WHERE airdate >= ? AND airdate < ? AND showid = ?",
+                    (past_date, future_date, int(show["indexer_id"])))
 
-            utc = tz.gettz('GMT')
+                utc = tz.gettz('GMT')
 
-            for episode in episode_list:
+                for episode in episode_list:
 
-                air_date_time = network_timezones.parse_date_time(episode['airdate'], show["airs"],
-                                                                  show['network']).astimezone(utc)
-                air_date_time_end = air_date_time + datetime.timedelta(minutes=helpers.tryInt(show["runtime"], 60))
+                    air_date_time = network_timezones.parse_date_time(episode['airdate'], show["airs"],
+                                                                      show['network']).astimezone(utc)
+                    air_date_time_end = air_date_time + datetime.timedelta(minutes=helpers.tryInt(show["runtime"], 60))
 
-                # Create event for episode
-                ical = ical + 'BEGIN:VEVENT\r\n'
-                ical = ical + 'DTSTART:' + air_date_time.strftime("%Y%m%d") + 'T' + air_date_time.strftime(
-                    "%H%M%S") + 'Z\r\n'
-                ical = ical + 'DTEND:' + air_date_time_end.strftime("%Y%m%d") + 'T' + air_date_time_end.strftime(
-                    "%H%M%S") + 'Z\r\n'
-                ical = ical + 'SUMMARY:' + show['show_name'] + ': ' + episode['name'] + '\r\n'
-                ical = ical + 'UID:Sick-Beard-' + str(datetime.date.today().isoformat()) + '-' + show[
-                    'show_name'].replace(" ", "-") + '-E' + str(episode['episode']) + 'S' + str(
-                    episode['season']) + '\r\n'
-                if (episode['description'] is not None and episode['description'] != ''):
-                    ical = ical + 'DESCRIPTION:' + show['airs'] + ' on ' + show['network'] + '\\n\\n' + \
-                           episode['description'].splitlines()[0] + '\r\n'
-                else:
-                    ical = ical + 'DESCRIPTION:' + show['airs'] + ' on ' + show['network'] + '\r\n'
-                ical = ical + 'LOCATION:' + 'Episode ' + str(episode['episode']) + ' - Season ' + str(
-                    episode['season']) + '\r\n'
-                ical = ical + 'END:VEVENT\r\n'
+                    # Create event for episode
+                    ical = ical + 'BEGIN:VEVENT\r\n'
+                    ical = ical + 'DTSTART:' + air_date_time.strftime("%Y%m%d") + 'T' + air_date_time.strftime(
+                        "%H%M%S") + 'Z\r\n'
+                    ical = ical + 'DTEND:' + air_date_time_end.strftime("%Y%m%d") + 'T' + air_date_time_end.strftime(
+                        "%H%M%S") + 'Z\r\n'
+                    ical = ical + 'SUMMARY:' + show['show_name'] + ': ' + episode['name'] + '\r\n'
+                    ical = ical + 'UID:Sick-Beard-' + str(datetime.date.today().isoformat()) + '-' + show[
+                        'show_name'].replace(" ", "-") + '-E' + str(episode['episode']) + 'S' + str(
+                        episode['season']) + '\r\n'
+                    if (episode['description'] is not None and episode['description'] != ''):
+                        ical = ical + 'DESCRIPTION:' + show['airs'] + ' on ' + show['network'] + '\\n\\n' + \
+                               episode['description'].splitlines()[0] + '\r\n'
+                    else:
+                        ical = ical + 'DESCRIPTION:' + show['airs'] + ' on ' + show['network'] + '\r\n'
+                    ical = ical + 'LOCATION:' + 'Episode ' + str(episode['episode']) + ' - Season ' + str(
+                        episode['season']) + '\r\n'
+                    ical = ical + 'END:VEVENT\r\n'
 
         # Ending the iCal
         ical += 'END:VCALENDAR'

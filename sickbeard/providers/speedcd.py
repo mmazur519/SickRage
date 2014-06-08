@@ -102,7 +102,9 @@ class SpeedCDProvider(generic.TorrentProvider):
         search_string = {'Season': []}
         for show_name in set(show_name_helpers.allPossibleShowNames(self.show)):
             if ep_obj.show.air_by_date or ep_obj.show.sports:
-                ep_string = show_name + str(ep_obj.airdate).split('-')[0]
+                ep_string = show_name + ' ' + str(ep_obj.airdate).split('-')[0]
+            elif ep_obj.show.anime:
+                ep_string = show_name + ' ' + "%d" % ep_obj.scene_absolute_number
             else:
                 ep_string = show_name + ' S%02d' % int(ep_obj.scene_season)  #1) showName SXX
 
@@ -127,6 +129,11 @@ class SpeedCDProvider(generic.TorrentProvider):
                 ep_string = sanitizeSceneName(show_name) + ' ' + \
                             str(ep_obj.airdate).replace('-', '|') + '|' + \
                             ep_obj.airdate.strftime('%b')
+                search_string['Episode'].append(ep_string)
+        elif self.show.anime:
+            for show_name in set(show_name_helpers.allPossibleShowNames(self.show)):
+                ep_string = sanitizeSceneName(show_name) + ' ' + \
+                            "%i" % int(ep_obj.scene_absolute_number)
                 search_string['Episode'].append(ep_string)
         else:
             for show_name in set(show_name_helpers.allPossibleShowNames(self.show)):
@@ -232,13 +239,15 @@ class SpeedCDProvider(generic.TorrentProvider):
 
         results = []
 
-        sqlResults = db.DBConnection().select(
-            'SELECT s.show_name, e.showid, e.season, e.episode, e.status, e.airdate FROM tv_episodes AS e' +
-            ' INNER JOIN tv_shows AS s ON (e.showid = s.indexer_id)' +
-            ' WHERE e.airdate >= ' + str(search_date.toordinal()) +
-            ' AND (e.status IN (' + ','.join([str(x) for x in Quality.DOWNLOADED]) + ')' +
-            ' OR (e.status IN (' + ','.join([str(x) for x in Quality.SNATCHED]) + ')))'
-        )
+        with db.DBConnection() as myDB:
+            sqlResults = myDB.select(
+                'SELECT s.show_name, e.showid, e.season, e.episode, e.status, e.airdate FROM tv_episodes AS e' +
+                ' INNER JOIN tv_shows AS s ON (e.showid = s.indexer_id)' +
+                ' WHERE e.airdate >= ' + str(search_date.toordinal()) +
+                ' AND (e.status IN (' + ','.join([str(x) for x in Quality.DOWNLOADED]) + ')' +
+                ' OR (e.status IN (' + ','.join([str(x) for x in Quality.SNATCHED]) + ')))'
+            )
+
         if not sqlResults:
             return []
 
@@ -293,8 +302,8 @@ class SpeedCDCache(tvcache.TVCache):
                 ql.append(ci)
 
         if ql:
-            myDB = self._getDB()
-            myDB.mass_action(ql)
+            with self._getDB() as myDB:
+                myDB.mass_action(ql)
 
     def _parseItem(self, item):
 

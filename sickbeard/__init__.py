@@ -31,7 +31,7 @@ from threading import Lock
 # apparently py2exe won't build these unless they're imported somewhere
 from sickbeard import providers, metadata, config
 from sickbeard.providers.generic import GenericProvider
-from providers import ezrss, tvtorrents, btn, newznab, womble, thepiratebay, torrentleech, kat, publichd, iptorrents, \
+from providers import ezrss, tvtorrents, btn, newznab, womble, thepiratebay, torrentleech, kat, iptorrents, \
     omgwtfnzbs, scc, hdtorrents, torrentday, hdbits, nextgen, speedcd, nyaatorrents, fanzub
 from sickbeard.config import CheckSection, check_setting_int, check_setting_str, check_setting_float, ConfigMigrator, \
     naming_ep_type
@@ -47,8 +47,8 @@ from indexers.indexer_api import indexerApi
 from indexers.indexer_exceptions import indexer_shownotfound, indexer_exception, indexer_error, indexer_episodenotfound, \
     indexer_attributenotfound, indexer_seasonnotfound, indexer_userabort, indexerExcepts
 from sickbeard.common import SD, SKIPPED, NAMING_REPEAT
-
 from sickbeard.databases import mainDB, cache_db, failed_db
+from sickbeard.tv import episodeCache
 
 from lib.configobj import ConfigObj
 
@@ -433,7 +433,6 @@ TMDB_API_KEY = 'edc5f123313769de83a71e157758030b'
 
 __INITIALIZED__ = False
 
-
 def initialize(consoleLogging=True):
     with INIT_LOCK:
 
@@ -597,13 +596,12 @@ def initialize(consoleLogging=True):
         NAMING_PATTERN = check_setting_str(CFG, 'General', 'naming_pattern', 'Season %0S/%SN - S%0SE%0E - %EN')
         NAMING_ABD_PATTERN = check_setting_str(CFG, 'General', 'naming_abd_pattern', '%Y/%0M/%SN - %A.D - %EN')
         NAMING_CUSTOM_ABD = check_setting_int(CFG, 'General', 'naming_custom_abd', 0)
-        NAMING_SPORTS_PATTERN = check_setting_str(CFG, 'General', 'naming_sports_pattern',
-                                                  'Season %0S/%SN - S%0SE%0E - %EN')
+        NAMING_SPORTS_PATTERN = check_setting_str(CFG, 'General', 'naming_sports_pattern', '%Y/%0M/%SN - %A.D - %EN')
+        NAMING_ANIME = check_setting_int(CFG, 'General', 'naming_anime', 3)
         NAMING_CUSTOM_SPORTS = check_setting_int(CFG, 'General', 'naming_custom_sports', 0)
         NAMING_MULTI_EP = check_setting_int(CFG, 'General', 'naming_multi_ep', 1)
         NAMING_FORCE_FOLDERS = naming.check_force_season_folders()
         NAMING_STRIP_YEAR = bool(check_setting_int(CFG, 'General', 'naming_strip_year', 0))
-        NAMING_ANIME = check_setting_int(CFG, 'General', 'naming_anime', 3)
 
         USE_NZBS = bool(check_setting_int(CFG, 'General', 'use_nzbs', 0))
         USE_TORRENTS = bool(check_setting_int(CFG, 'General', 'use_torrents', 1))
@@ -907,16 +905,20 @@ def initialize(consoleLogging=True):
         logger.sb_log_instance.initLogging(consoleLogging=consoleLogging)
 
         # initialize the main SB database
-        db.upgradeDatabase(db.DBConnection(), mainDB.InitialSchema)
+        with db.DBConnection() as myDB:
+            db.upgradeDatabase(myDB, mainDB.InitialSchema)
 
         # initialize the cache database
-        db.upgradeDatabase(db.DBConnection("cache.db"), cache_db.InitialSchema)
+        with db.DBConnection('cache.db') as myDB:
+            db.upgradeDatabase(myDB, cache_db.InitialSchema)
 
         # initialize the failed downloads database
-        db.upgradeDatabase(db.DBConnection("failed.db"), failed_db.InitialSchema)
+        with db.DBConnection('failed.db') as myDB:
+            db.upgradeDatabase(myDB, failed_db.InitialSchema)
 
         # fix up any db problems
-        db.sanityCheckDatabase(db.DBConnection(), mainDB.MainSanityCheck)
+        with db.DBConnection() as myDB:
+            db.sanityCheckDatabase(myDB, mainDB.MainSanityCheck)
 
         # migrate the config if it needs it
         migrator = ConfigMigrator(CFG)
@@ -1804,8 +1806,8 @@ def getEpList(epIDs, showid=None):
         query += " AND showid = ?"
         params.append(showid)
 
-    myDB = db.DBConnection()
-    sqlResults = myDB.select(query, params)
+    with db.DBConnection() as myDB:
+        sqlResults = myDB.select(query, params)
 
     epList = []
 

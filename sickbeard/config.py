@@ -437,7 +437,7 @@ class ConfigMigrator():
             else:
                 logger.log(u"Proceeding with upgrade")
 
-            # do the migration, expect a method named _migrate_v<num>
+            # do the                                                                                                migration, expect a method named _migrate_v<num>
             logger.log(u"Migrating config up to version " + str(next_version) + migration_name)
             getattr(self, '_migrate_v' + str(next_version))()
             self.config_version = next_version
@@ -467,8 +467,8 @@ class ConfigMigrator():
         sickbeard.NAMING_MULTI_EP = int(check_setting_int(self.config_obj, 'General', 'naming_multi_ep_type', 1))
 
         # see if any of their shows used season folders
-        myDB = db.DBConnection()
-        season_folder_shows = myDB.select("SELECT * FROM tv_shows WHERE flatten_folders = 0")
+        with db.DBConnection() as myDB:
+            season_folder_shows = myDB.select("SELECT * FROM tv_shows WHERE flatten_folders = 0")
 
         # if any shows had season folders on then prepend season folder to the pattern
         if season_folder_shows:

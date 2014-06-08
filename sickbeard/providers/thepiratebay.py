@@ -167,17 +167,22 @@ class ThePirateBayProvider(generic.TorrentProvider):
     def _get_season_search_strings(self, ep_obj):
 
         search_string = {'Season': []}
-        for show_name in set(allPossibleShowNames(self.show)) if not (ep_obj.show.air_by_date or ep_obj.show.sports) else []:
+        for show_name in set(allPossibleShowNames(self.show)):
             if ep_obj.show.air_by_date or ep_obj.show.sports:
-                ep_string = show_name + str(ep_obj.airdate).split('-')[0]
-            else:
-                ep_string = show_name + ' S%02d' % int(ep_obj.scene_season)  #1) showName SXX
-            search_string['Season'].append(ep_string)
-
-            if ep_obj.show.air_by_date or ep_obj.show.sports:
+                ep_string = show_name + ' ' + str(ep_obj.airdate).split('-')[0]
+                search_string['Season'].append(ep_string)
                 ep_string = show_name + ' Season ' + str(ep_obj.airdate).split('-')[0]
+                search_string['Season'].append(ep_string)
+            elif ep_obj.show.anime:
+                ep_string = show_name + ' ' + "%d" % ep_obj.scene_absolute_number
+                search_string['Season'].append(ep_string)
             else:
-                ep_string = show_name + ' Season ' + str(ep_obj.scene_season) + ' -Ep*'  #2) showName Season X
+                ep_string = show_name + ' S%02d' % int(ep_obj.scene_season) + ' -S%02d' % int(
+                    ep_obj.scene_season) + 'E' + ' category:tv'  #1) showName SXX -SXXE
+                search_string['Season'].append(ep_string)
+                ep_string = show_name + ' Season ' + str(
+                    ep_obj.scene_season) + ' -Ep*' + ' category:tv'  # 2) showName Season X
+                search_string['Season'].append(ep_string)
 
             search_string['Season'].append(ep_string)
 
@@ -198,18 +203,18 @@ class ThePirateBayProvider(generic.TorrentProvider):
                             str(ep_obj.airdate).replace('-', '|') + '|' + \
                             ep_obj.airdate.strftime('%b')
                 search_string['Episode'].append(ep_string)
+        elif self.show.anime:
+            for show_name in set(allPossibleShowNames(self.show)):
+                ep_string = sanitizeSceneName(show_name) + ' ' + \
+                            "%i" % int(ep_obj.scene_absolute_number)
+                search_string['Episode'].append(ep_string)
         else:
             for show_name in set(allPossibleShowNames(self.show)):
                 ep_string = sanitizeSceneName(show_name) + ' ' + \
                             sickbeard.config.naming_ep_type[2] % {'seasonnumber': ep_obj.scene_season,
                                                                   'episodenumber': ep_obj.scene_episode} + '|' + \
                             sickbeard.config.naming_ep_type[0] % {'seasonnumber': ep_obj.scene_season,
-                                                                  'episodenumber': ep_obj.scene_episode} + '|' + \
-                            sickbeard.config.naming_ep_type[3] % {'seasonnumber': ep_obj.scene_season,
-                                                                  'episodenumber': ep_obj.scene_episode}
-
-                ep_string += ' %s' % add_string
-
+                                                                  'episodenumber': ep_obj.scene_episode} + ' %s' % add_string
                 search_string['Episode'].append(re.sub('\s+', ' ', ep_string))
 
         return [search_string]
@@ -366,13 +371,15 @@ class ThePirateBayProvider(generic.TorrentProvider):
 
         results = []
 
-        sqlResults = db.DBConnection().select(
-            'SELECT s.show_name, e.showid, e.season, e.episode, e.status, e.airdate FROM tv_episodes AS e' +
-            ' INNER JOIN tv_shows AS s ON (e.showid = s.indexer_id)' +
-            ' WHERE e.airdate >= ' + str(search_date.toordinal()) +
-            ' AND (e.status IN (' + ','.join([str(x) for x in Quality.DOWNLOADED]) + ')' +
-            ' OR (e.status IN (' + ','.join([str(x) for x in Quality.SNATCHED]) + ')))'
-        )
+        with db.DBConnection() as myDB:
+            sqlResults = myDB.select(
+                'SELECT s.show_name, e.showid, e.season, e.episode, e.status, e.airdate FROM tv_episodes AS e' +
+                ' INNER JOIN tv_shows AS s ON (e.showid = s.indexer_id)' +
+                ' WHERE e.airdate >= ' + str(search_date.toordinal()) +
+                ' AND (e.status IN (' + ','.join([str(x) for x in Quality.DOWNLOADED]) + ')' +
+                ' OR (e.status IN (' + ','.join([str(x) for x in Quality.SNATCHED]) + ')))'
+            )
+
         if not sqlResults:
             return []
 
@@ -428,8 +435,8 @@ class ThePirateBayCache(tvcache.TVCache):
                 cl.append(ci)
 
         if cl:
-            myDB = self._getDB()
-            myDB.mass_action(cl)
+            with self._getDB() as myDB:
+                myDB.mass_action(cl)
 
     def _parseItem(self, item):
 

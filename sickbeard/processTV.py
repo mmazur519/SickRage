@@ -37,6 +37,64 @@ from lib.unrar2 import RarFile, RarInfo
 from lib.unrar2.rar_exceptions import *
 
 
+def delete_folder(folder, check_empty=True):
+
+    # check if it's a folder
+    if not ek.ek(os.path.isdir, folder):
+        return False
+
+    # check if it isn't TV_DOWNLOAD_DIR
+    if sickbeard.TV_DOWNLOAD_DIR:
+        if helpers.real_path(folder) == helpers.real_path(sickbeard.TV_DOWNLOAD_DIR):
+            return False
+
+    # check if it's empty folder when wanted checked
+    if check_empty:
+        check_files = ek.ek(os.listdir, folder)
+        if check_files:
+            return False
+
+    # try deleting folder
+    try:
+        logger.log(u"Deleting folder: " + folder)
+        shutil.rmtree(folder)
+    except (OSError, IOError), e:
+        logger.log(u"Warning: unable to delete folder: " + folder + ": " + ex(e), logger.WARNING)
+        return False
+
+    return True
+
+def delete_files(processPath, notwantedFiles):
+    global returnStr, process_result
+
+    if not process_result:
+        return
+
+    #Delete all file not needed
+    for cur_file in notwantedFiles:
+
+        cur_file_path = ek.ek(os.path.join, processPath, cur_file)
+
+        if not ek.ek(os.path.isfile, cur_file_path):
+            continue  #Prevent error when a notwantedfiles is an associated files
+
+        returnStr += logHelper(u"Deleting file " + cur_file, logger.DEBUG)
+
+        #check first the read-only attribute
+        file_attribute = ek.ek(os.stat, cur_file_path)[0]
+        if (not file_attribute & stat.S_IWRITE):
+            # File is read-only, so make it writeable
+            returnStr += logHelper(u"Changing ReadOnly Flag for file " + cur_file, logger.DEBUG)
+            try:
+                ek.ek(os.chmod, cur_file_path, stat.S_IWRITE)
+            except OSError, e:
+                returnStr += logHelper(u"Cannot change permissions of " + cur_file_path + ': ' + str(e.strerror),
+                                       logger.DEBUG)
+        try:
+            ek.ek(os.remove, cur_file_path)
+        except OSError, e:
+            returnStr += logHelper(u"Unable to delete file " + cur_file + ': ' + str(e.strerror), logger.DEBUG)
+
 def logHelper(logMessage, logLevel=logger.MESSAGE):
     logger.log(logMessage, logLevel)
     return logMessage + u"\n"
@@ -106,13 +164,13 @@ def processDir(dirName, nzbName=None, process_method=None, force=False, is_prior
 
     #Don't Link media when the media is extracted from a rar in the same path
     if process_method in ('hardlink', 'symlink') and videoInRar:
-        process_media(path, videoInRar, nzbName, 'move', force, is_priority)
+        process_result = process_media(path, videoInRar, nzbName, 'move', force, is_priority)
         delete_files(path, rarContent)
         for video in set(videoFiles) - set(videoInRar):
-            process_media(path, [video], nzbName, process_method, force, is_priority)
+            process_result = process_media(path, [video], nzbName, process_method, force, is_priority)
     else:
         for video in videoFiles:
-            process_media(path, [video], nzbName, process_method, force, is_priority)
+            process_result = process_media(path, [video], nzbName, process_method, force, is_priority)
 
     #Process Video File in all TV Subdir
     for dir in [x for x in dirs if validateDir(path, x, nzbNameOriginal, failed)]:
@@ -147,8 +205,8 @@ def processDir(dirName, nzbName=None, process_method=None, force=False, is_prior
                 if process_method == "move" and \
                                 ek.ek(os.path.normpath, processPath) != ek.ek(os.path.normpath,
                                                                               sickbeard.TV_DOWNLOAD_DIR):
-                    if processPath != sickbeard.TV_DOWNLOAD_DIR:
-                        delete_dir(processPath)
+                    if delete_folder(processPath, check_empty=False):
+                        returnStr += logHelper(u"Deleted folder: " + processPath, logger.DEBUG)
 
     if process_result:
         returnStr += logHelper(u"Successfully processed")
@@ -184,8 +242,9 @@ def validateDir(path, dirName, nzbNameOriginal, failed):
         return False
 
     # make sure the dir isn't inside a show dir
-    myDB = db.DBConnection()
-    sqlResults = myDB.select("SELECT * FROM tv_shows")
+    with db.DBConnection() as myDB:
+        sqlResults = myDB.select("SELECT * FROM tv_shows")
+
     for sqlShow in sqlResults:
         if dirName.lower().startswith(
                         ek.ek(os.path.realpath, sqlShow["location"]).lower() + os.sep) or dirName.lower() == ek.ek(
@@ -286,33 +345,33 @@ def already_postprocessed(dirName, videofile, force):
         dirName = unicode(dirName, 'utf_8')
 
     # Avoid processing the same dir again if we use a process method <> move
-    myDB = db.DBConnection()
-    sqlResult = myDB.select("SELECT * FROM tv_episodes WHERE release_name = ?", [dirName])
-    if sqlResult:
-        returnStr += logHelper(u"You're trying to post process a dir that's already been processed, skipping",
-                               logger.DEBUG)
-        return True
+    with db.DBConnection() as myDB:
+        sqlResult = myDB.select("SELECT * FROM tv_episodes WHERE release_name = ?", [dirName])
+        if sqlResult:
+            returnStr += logHelper(u"You're trying to post process a dir that's already been processed, skipping",
+                                   logger.DEBUG)
+            return True
 
-    # This is needed for video whose name differ from dirName
-    if not isinstance(videofile, unicode):
-        videofile = unicode(videofile, 'utf_8')
+        # This is needed for video whose name differ from dirName
+        if not isinstance(videofile, unicode):
+            videofile = unicode(videofile, 'utf_8')
 
-    sqlResult = myDB.select("SELECT * FROM tv_episodes WHERE release_name = ?", [videofile.rpartition('.')[0]])
-    if sqlResult:
-        returnStr += logHelper(u"You're trying to post process a video that's already been processed, skipping",
-                               logger.DEBUG)
-        return True
+        sqlResult = myDB.select("SELECT * FROM tv_episodes WHERE release_name = ?", [videofile.rpartition('.')[0]])
+        if sqlResult:
+            returnStr += logHelper(u"You're trying to post process a video that's already been processed, skipping",
+                                   logger.DEBUG)
+            return True
 
-    #Needed if we have downloaded the same episode @ different quality
-    search_sql = "SELECT tv_episodes.indexerid, history.resource FROM tv_episodes INNER JOIN history ON history.showid=tv_episodes.showid"
-    search_sql += " WHERE history.season=tv_episodes.season and history.episode=tv_episodes.episode"
-    search_sql += " and tv_episodes.status IN (" + ",".join([str(x) for x in common.Quality.DOWNLOADED]) + ")"
-    search_sql += " and history.resource LIKE ?"
-    sqlResult = myDB.select(search_sql, [u'%' + videofile])
-    if sqlResult:
-        returnStr += logHelper(u"You're trying to post process a video that's already been processed, skipping",
-                               logger.DEBUG)
-        return True
+        #Needed if we have downloaded the same episode @ different quality
+        search_sql = "SELECT tv_episodes.indexerid, history.resource FROM tv_episodes INNER JOIN history ON history.showid=tv_episodes.showid"
+        search_sql += " WHERE history.season=tv_episodes.season and history.episode=tv_episodes.episode"
+        search_sql += " and tv_episodes.status IN (" + ",".join([str(x) for x in common.Quality.DOWNLOADED]) + ")"
+        search_sql += " and history.resource LIKE ?"
+        sqlResult = myDB.select(search_sql, [u'%' + videofile])
+        if sqlResult:
+            returnStr += logHelper(u"You're trying to post process a video that's already been processed, skipping",
+                                   logger.DEBUG)
+            return True
 
     return False
 
@@ -320,6 +379,7 @@ def already_postprocessed(dirName, videofile, force):
 def process_media(processPath, videoFiles, nzbName, process_method, force, is_priority):
     global process_result, returnStr
 
+    processor = None
     for cur_video_file in videoFiles:
 
         if already_postprocessed(processPath, cur_video_file, force):
@@ -335,7 +395,8 @@ def process_media(processPath, videoFiles, nzbName, process_method, force, is_pr
             process_result = False
             process_fail_message = ex(e)
 
-        returnStr += processor.log
+        if processor:
+            returnStr += processor.log
 
         if process_result:
             returnStr += logHelper(u"Processing succeeded for " + cur_video_file_path)
@@ -347,57 +408,10 @@ def process_media(processPath, videoFiles, nzbName, process_method, force, is_pr
         if not process_result:
             break
 
-
-def delete_files(processPath, notwantedFiles):
-    global returnStr, process_result
-
-    if not process_result:
-        return
-
-    #Delete all file not needed
-    for cur_file in notwantedFiles:
-
-        cur_file_path = ek.ek(os.path.join, processPath, cur_file)
-
-        if not ek.ek(os.path.isfile, cur_file_path):
-            continue  #Prevent error when a notwantedfiles is an associated files
-
-        returnStr += logHelper(u"Deleting file " + cur_file, logger.DEBUG)
-
-        #check first the read-only attribute
-        file_attribute = ek.ek(os.stat, cur_file_path)[0]
-        if (not file_attribute & stat.S_IWRITE):
-            # File is read-only, so make it writeable
-            returnStr += logHelper(u"Changing ReadOnly Flag for file " + cur_file, logger.DEBUG)
-            try:
-                ek.ek(os.chmod, cur_file_path, stat.S_IWRITE)
-            except OSError, e:
-                returnStr += logHelper(u"Cannot change permissions of " + cur_file_path + ': ' + str(e.strerror),
-                                       logger.DEBUG)
-        try:
-            ek.ek(os.remove, cur_file_path)
-        except OSError, e:
-            returnStr += logHelper(u"Unable to delete file " + cur_file + ': ' + str(e.strerror), logger.DEBUG)
-
-
-def delete_dir(processPath):
-    global returnStr
-
-    if not ek.ek(os.listdir, processPath) == []:
-        returnStr += logHelper(
-            u"Skipping Deleting folder " + processPath + ' because some files was not deleted/processed', logger.DEBUG)
-        return
-
-    returnStr += logHelper(u"Deleting folder " + processPath, logger.DEBUG)
-
-    try:
-        shutil.rmtree(processPath)
-    except (OSError, IOError), e:
-        returnStr += logHelper(u"Warning: unable to remove the folder " + processPath + ": " + ex(e), logger.WARNING)
-
-
 def get_path_dir_files(dirName, nzbName, type):
     path = ""
+    dirs = []
+    files = []
 
     if dirName == sickbeard.TV_DOWNLOAD_DIR and not nzbName or type == "manual":  #Scheduled Post Processing Active
         #Get at first all the subdir in the dirName
@@ -436,7 +450,8 @@ def process_failed(dirName, nzbName):
             returnStr += processor.log
 
         if sickbeard.DELETE_FAILED and process_result:
-            delete_dir(dirName)
+            if delete_folder(dirName, check_empty=False):
+                returnStr += logHelper(u"Deleted folder: " + dirName, logger.DEBUG)
 
         if process_result:
             returnStr += logHelper(u"Failed Download Processing succeeded: (" + str(nzbName) + ", " + dirName + ")")
