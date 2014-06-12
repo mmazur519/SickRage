@@ -1245,9 +1245,9 @@ class ConfigPostProcessing:
         config.change_AUTOPOSTPROCESSER_FREQUENCY(autopostprocesser_frequency)
 
         if sickbeard.PROCESS_AUTOMATICALLY:
-            sickbeard.autoPostProcesserScheduler.silent = False
+            sickbeard.autoPostProcessorScheduler.silent = False
         else:
-            sickbeard.autoPostProcesserScheduler.silent = True
+            sickbeard.autoPostProcessorScheduler.silent = True
 
         if unpack:
             if self.isRarSupported() != 'not supported':
@@ -1910,9 +1910,9 @@ class ConfigNotifications:
         sickbeard.TRAKT_START_PAUSED = config.checkbox_to_value(trakt_start_paused)
 
         if sickbeard.USE_TRAKT:
-            sickbeard.traktWatchListCheckerSchedular.silent = False
+            sickbeard.traktWatchListCheckerScheduler.silent = False
         else:
-            sickbeard.traktWatchListCheckerSchedular.silent = True
+            sickbeard.traktWatchListCheckerScheduler.silent = True
 
         sickbeard.USE_EMAIL = config.checkbox_to_value(use_email)
         sickbeard.EMAIL_NOTIFY_ONSNATCH = config.checkbox_to_value(email_notify_onsnatch)
@@ -2457,7 +2457,7 @@ class NewHomeAddShows:
 
         # add the show
         sickbeard.showQueueScheduler.action.addShow(indexer, indexer_id, show_dir, int(defaultStatus), newQuality,
-                                                    flatten_folders, subtitles, indexerLang, anime,
+                                                    flatten_folders, indexerLang, subtitles, anime,
                                                     scene)  # @UndefinedVariable
         ui.notifications.message('Show added', 'Adding the specified show into ' + show_dir)
 
