@@ -77,6 +77,7 @@ PIDFILE = ''
 
 DAEMON = None
 NO_RESIZE = False
+WEBSERVER = None
 
 maintenanceScheduler = None
 dailySearchScheduler = None
@@ -1116,11 +1117,14 @@ def start():
         showUpdateScheduler, versionCheckScheduler, showQueueScheduler, \
         properFinderScheduler, autoPostProcesserScheduler, searchQueueScheduler, \
         subtitlesFinderScheduler, USE_SUBTITLES,traktWatchListCheckerScheduler, \
-        dailySearchScheduler, started
+        dailySearchScheduler, WEBSERVER, started
 
     with INIT_LOCK:
 
         if __INITIALIZED__:
+
+            # start IOLoop tasks
+            WEBSERVER.start_tasks()
 
             # start the maintenance scheduler
             maintenanceScheduler.thread.start()
@@ -1167,7 +1171,7 @@ def halt():
         showUpdateScheduler, versionCheckScheduler, showQueueScheduler, \
         properFinderScheduler, autoPostProcesserScheduler, searchQueueScheduler, \
         subtitlesFinderScheduler, traktWatchListCheckerScheduler, \
-        dailySearchScheduler, started
+        dailySearchScheduler, WEBSERVER, started
 
     with INIT_LOCK:
 
@@ -1176,6 +1180,8 @@ def halt():
             logger.log(u"Aborting all threads")
 
             # abort all the threads
+
+            WEBSERVER.stop_tasks()
 
             maintenanceScheduler.abort = True
             logger.log(u"Waiting for the MAINTENANCE scheduler thread to exit")
@@ -1290,22 +1296,18 @@ def saveAll():
 
 
 def saveAndShutdown(restart=False):
+    global WEBSERVER
 
     halt()
     saveAll()
 
-    # Shutdown tornado
     logger.log('Shutting down tornado')
-
-    def shutdown():
-        try:
-            IOLoop.current().stop()
-        except RuntimeError:
-            pass
-        except:
-            logger.log('Failed shutting down the server: %s' % traceback.format_exc(), logger.ERROR)
-
-    IOLoop.current().add_callback(shutdown)
+    try:
+        WEBSERVER.stop()
+    except RuntimeError:
+        pass
+    except:
+        logger.log('Failed shutting down the server: %s' % traceback.format_exc(), logger.ERROR)
 
     if CREATEPID:
         logger.log(u"Removing pidfile " + str(PIDFILE))

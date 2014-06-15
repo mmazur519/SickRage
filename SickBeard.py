@@ -48,7 +48,6 @@ if sys.hexversion >= 0x020600F0:
 import locale
 import datetime
 import threading
-import time
 import signal
 import traceback
 import getopt
@@ -64,6 +63,8 @@ from sickbeard.databases.mainDB import MIN_DB_VERSION
 from sickbeard.databases.mainDB import MAX_DB_VERSION
 
 from lib.configobj import ConfigObj
+
+from tornado.ioloop import IOLoop, PeriodicCallback
 
 signal.signal(signal.SIGINT, sickbeard.sig_handler)
 signal.signal(signal.SIGTERM, sickbeard.sig_handler)
@@ -145,6 +146,12 @@ def daemonize():
     os.dup2(stdout.fileno(), sys.stdout.fileno())
     os.dup2(stderr.fileno(), sys.stderr.fileno())
 
+
+# background update every x seconds
+def invoke_command():
+    if sickbeard.invoked_command:
+        sickbeard.invoked_command()
+        sickbeard.invoked_command = None
 
 def main():
     """
@@ -361,35 +368,34 @@ def main():
         'https_key': sickbeard.HTTPS_KEY,
     }
 
-    # Build from the DB to start with
-    logger.log(u"Loading initial show list")
-    loadShowsFromDB()
+    def startup():
+        # Build from the DB to start with
+        logger.log(u"Loading initial show list")
+        loadShowsFromDB()
 
-    # start tornado thread
-    webserverInit(options).start()
+        # Fire up all our threads
+        sickbeard.start()
 
-    # Fire up all our threads
-    sickbeard.start()
+        # Launch browser if we're supposed to
+        if sickbeard.LAUNCH_BROWSER and not noLaunch and not sickbeard.DAEMON:
+            sickbeard.launchBrowser(startPort)
 
-    # Launch browser if we're supposed to
-    if sickbeard.LAUNCH_BROWSER and not noLaunch and not sickbeard.DAEMON:
-        sickbeard.launchBrowser(startPort)
+        # Start an update if we're supposed to
+        if forceUpdate or sickbeard.UPDATE_SHOWS_ON_START:
+            sickbeard.showUpdateScheduler.action.run(force=True)  # @UndefinedVariable
 
-    # Start an update if we're supposed to
-    if forceUpdate or sickbeard.UPDATE_SHOWS_ON_START:
-        sickbeard.showUpdateScheduler.action.run(force=True)  # @UndefinedVariable
+    # init tornado
+    sickbeard.WEBSERVER = webserverInit(options)
+    sickbeard.WEBSERVER.ioloop.add_timeout(datetime.timedelta(seconds=5), startup)
 
-    # Stay alive while my threads do the work
-    while (True):
+    # check for commands to be executed in the background
+    task = PeriodicCallback(invoke_command, 1000)
+    sickbeard.WEBSERVER.tasks.append(task)
 
-        if sickbeard.invoked_command:
-            sickbeard.invoked_command()
-            sickbeard.invoked_command = None
-
-        time.sleep(1)
-
+    # start tornado
+    sickbeard.WEBSERVER.start()
+    sickbeard.WEBSERVER.close()
     return
-
 
 if __name__ == "__main__":
     if sys.hexversion >= 0x020600F0:
