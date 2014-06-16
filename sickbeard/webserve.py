@@ -28,12 +28,8 @@ import re
 import threading
 import datetime
 import random
-
-from Cheetah.Template import Template
 import sys
-from tornado import gen
-from tornado.httputil import HTTPHeaders
-from tornado.web import RequestHandler, HTTPError, asynchronous, authenticated
+
 import sickbeard
 
 from sickbeard import config, sab
@@ -67,6 +63,7 @@ from lib.dateutil import tz
 from lib.unrar2 import RarFile
 
 from lib import subliminal
+import tornado
 
 try:
     import json
@@ -80,12 +77,19 @@ except ImportError:
 
 from lib import adba
 
-#def _handle_reverse_proxy():
+from Cheetah.Template import Template
+from tornado import gen, autoreload
+from tornado.web import RequestHandler, HTTPError, asynchronous, authenticated
+from tornado.ioloop import IOLoop
+
+# def _handle_reverse_proxy():
 #    if sickbeard.HANDLE_REVERSE_PROXY:
 #        cherrypy.lib.cptools.proxy()
 
 
 # cherrypy.tools.handle_reverse_proxy = cherrypy.Tool('before_handler', _handle_reverse_proxy)
+
+req_headers = None
 
 def require_basic_auth(handler_class):
     def wrap_execute(handler_execute):
@@ -103,77 +107,40 @@ def require_basic_auth(handler_class):
                 return True
 
             auth_header = handler.request.headers.get('Authorization')
-            if auth_header is None or not auth_header.startswith('Basic '):
-                get_auth()
-
-            auth_decoded = base64.decodestring(auth_header[6:])
-            basicauth_user, basicauth_pass = auth_decoded.split(':', 2)
-            if basicauth_user == sickbeard.WEB_USERNAME and basicauth_pass == sickbeard.WEB_PASSWORD:
-                if not handler.get_secure_cookie("user"):
-                    handler.set_secure_cookie("user", str(time.time()))
-                return True
+            if auth_header and auth_header.startswith('Basic '):
+                auth_decoded = base64.decodestring(auth_header[6:])
+                basicauth_user, basicauth_pass = auth_decoded.split(':', 2)
+                if basicauth_user == sickbeard.WEB_USERNAME and basicauth_pass == sickbeard.WEB_PASSWORD:
+                    if not handler.get_secure_cookie("user"):
+                        handler.set_secure_cookie("user", str(time.time()))
+                    return True
 
             handler.clear_cookie("user")
             get_auth()
+
         def _execute(self, transforms, *args, **kwargs):
             if not require_basic_auth(self, kwargs):
                 return False
             return handler_execute(self, transforms, *args, **kwargs)
+
         return _execute
 
     handler_class._execute = wrap_execute(handler_class._execute)
     return handler_class
 
+@require_basic_auth
 class RedirectHandler(RequestHandler):
-    """Redirects the client to the given URL for all GET requests.
 
-    You should provide the keyword argument ``url`` to the handler, e.g.::
-
-        application = web.Application([
-            (r"/oldpath", web.RedirectHandler, {"url": "/newpath"}),
-        ])
-    """
-    def get(self, path):
+    def get(self, path, **kwargs):
         self.redirect(path, permanent=True)
 
-@require_basic_auth
-class LoginHandler(RedirectHandler):
-    def get(self, path):
-        self.redirect(self.get_argument("next", u"/"))
-
-@require_basic_auth
 class IndexHandler(RedirectHandler):
     def __init__(self, application, request, **kwargs):
         super(IndexHandler, self).__init__(application, request, **kwargs)
+        global req_headers
 
-        self.remote_ip = sickbeard.REMOTE_IP = self.request.headers.get('X-Forwarded-For',
-                                                  self.request.headers.get('X-Real-Ip', self.request.remote_ip))
-
-        self.h = HTTPHeaders({"content-type": "text/html"})
-        self.h['Cache-Control'] = "max-age=0,no-cache,no-store"
-        self.h['Content-Type'] = 'text/javascript'
-        self.h['Access-Control-Allow-Origin'] = '*'
-        self.h['Access-Control-Allow-Headers'] = 'x-requested-with'
-
-        if 'Host' in self.h:
-            if self.h['Host'][0] == '[':
-                self.sbHost = re.match("^\[.*\]", self.h['Host'], re.X | re.M | re.S).group(0)
-            else:
-                self.sbHost = re.match("^[^:]+", self.h['Host'], re.X | re.M | re.S).group(0)
-
-        if sickbeard.NZBS and sickbeard.NZBS_UID and sickbeard.NZBS_HASH:
-            logger.log(u"NZBs.org has been replaced, please check the config to configure the new provider!",
-                       logger.ERROR)
-            ui.notifications.error("NZBs.org Config Update",
-                                   "NZBs.org has a new site. Please <a href=\"" + sickbeard.WEB_ROOT + "/config/providers\">update your config</a> with the api key from <a href=\"http://nzbs.org/login\">http://nzbs.org</a> and then disable the old NZBs.org provider.")
-
-        if "X-Forwarded-Host" in self.h:
-            self.sbHost = self.h['X-Forwarded-Host']
-        if "X-Forwarded-Port" in self.h:
-            sbHttpPort = self.h['X-Forwarded-Port']
-            self.sbHttpsPort = sbHttpPort
-        if "X-Forwarded-Proto" in self.h:
-            self.sbHttpsEnabled = True if self.h['X-Forwarded-Proto'] == 'https' else False
+        sickbeard.REMOTE_IP = self.request.remote_ip
+        req_headers = self.request.headers
 
     def delist_arguments(self, args):
         """
@@ -188,20 +155,24 @@ class IndexHandler(RedirectHandler):
         return args
 
     def _dispatch(self):
-        """
-        Load up the requested URL if it matches one of our own methods.
-        Skip methods that start with an underscore (_).
-        """
+
         args = None
         path = self.request.uri.split('?')[0]
+
         method = path.strip('/').split('/')[-1]
+        if path.startswith('/api'):
+            apikey = path.strip('/').split('/')[-1]
+            method = path.strip('/').split('/')[0]
+            self.request.arguments.update({'apikey':[apikey]})
 
         def pred(c):
             return inspect.isclass(c) and c.__module__ == pred.__module__
 
         try:
-            klass = [cls[1] for cls in inspect.getmembers(sys.modules[__name__], pred) + [(self.__class__.__name__, self.__class__)] if
-                     cls[0].lower() == method.lower() or method in cls[1].__dict__.keys()][0](self.application, self.request)
+            klass = [cls[1] for cls in
+                     inspect.getmembers(sys.modules[__name__], pred) + [(self.__class__.__name__, self.__class__)] if
+                     cls[0].lower() == method.lower() or method in cls[1].__dict__.keys()][0](self.application,
+                                                                                              self.request)
         except:
             klass = None
 
@@ -416,7 +387,7 @@ class IndexHandler(RedirectHandler):
         """ Provides a subscribeable URL for iCal subscriptions
         """
 
-        logger.log(u"Receiving iCal request from %s" % self.request.remote.ip)
+        logger.log(u"Receiving iCal request from %s" % self.request.remote_ip)
 
         poster_url = self.request.url().replace('ical', '')
 
@@ -479,17 +450,35 @@ class IndexHandler(RedirectHandler):
 
     browser = WebFileBrowser
 
+class LoginHandler(IndexHandler):
+    def get(self):
+        self.redirect(self.get_argument("next", u"/"))
+
 class PageTemplate(Template):
     def __init__(self, *args, **KWs):
         KWs['file'] = os.path.join(sickbeard.PROG_DIR, "gui/" + sickbeard.GUI_NAME + "/interfaces/default/",
                                    KWs['file'])
         super(PageTemplate, self).__init__(*args, **KWs)
+        global req_headers
+
         self.sbRoot = sickbeard.WEB_ROOT
         self.sbHttpPort = sickbeard.WEB_PORT
         self.sbHttpsPort = sickbeard.WEB_PORT
-        self.sbHost = sickbeard.WEB_HOST
         self.sbHttpsEnabled = sickbeard.ENABLE_HTTPS
         self.sbHandleReverseProxy = sickbeard.HANDLE_REVERSE_PROXY
+
+        if req_headers['Host'][0] == '[':
+            self.sbHost = re.match("^\[.*\]", req_headers['Host'], re.X | re.M | re.S).group(0)
+        else:
+            self.sbHost = re.match("^[^:]+", req_headers['Host'], re.X | re.M | re.S).group(0)
+
+        if "X-Forwarded-Host" in req_headers:
+            self.sbHost = req_headers['X-Forwarded-Host']
+        if "X-Forwarded-Port" in req_headers:
+            sbHttpPort = req_headers['X-Forwarded-Port']
+            self.sbHttpsPort = sbHttpPort
+        if "X-Forwarded-Proto" in req_headers:
+            self.sbHttpsEnabled = True if req_headers['X-Forwarded-Proto'] == 'https' else False
 
         logPageTitle = 'Logs &amp; Errors'
         if len(classes.ErrorViewer.errors):
@@ -1070,8 +1059,8 @@ class Manage(IndexHandler):
             exceptions_list = []
 
             curErrors += self.editShow(curShow, new_show_dir, anyQualities, bestQualities, exceptions_list,
-                                         new_flatten_folders, new_paused, subtitles=new_subtitles, anime=new_anime,
-                                         scene=new_scene, directCall=True)
+                                       new_flatten_folders, new_paused, subtitles=new_subtitles, anime=new_anime,
+                                       scene=new_scene, directCall=True)
 
             if curErrors:
                 logger.log(u"Errors: " + str(curErrors), logger.ERROR)
@@ -1345,6 +1334,7 @@ ConfigMenu = [
     {'title': 'Notifications', 'path': 'config/notifications/'},
     {'title': 'Anime', 'path': 'config/anime/'},
 ]
+
 
 class ConfigGeneral(IndexHandler):
     def index(self, *args, **kwargs):
@@ -2432,8 +2422,8 @@ class ConfigAnime(IndexHandler):
 
         self.redirect("/config/anime/")
 
-class Config(IndexHandler):
 
+class Config(IndexHandler):
     def index(self, *args, **kwargs):
         t = PageTemplate(file="config.tmpl")
         t.submenu = ConfigMenu
@@ -2448,6 +2438,7 @@ class Config(IndexHandler):
     postProcessing = ConfigPostProcessing
     notifications = ConfigNotifications
     anime = ConfigAnime
+
 
 def haveXBMC():
     return sickbeard.USE_XBMC and sickbeard.XBMC_UPDATE_LIBRARY
@@ -2976,6 +2967,11 @@ class Home(IndexHandler):
         else:
             return "Error: Unsupported Request. Send jsonp request with 'callback' variable in the query string."
 
+        self.set_header('Cache-Control', "max-age=0,no-cache,no-store")
+        self.set_header('Content-Type', 'text/javascript')
+        self.set_header('Access-Control-Allow-Origin', '*')
+        self.set_header('Access-Control-Allow-Headers', 'x-requested-with')
+
         if sickbeard.started:
             return callback + '(' + json.dumps({"msg": str(sickbeard.PID)}) + ');'
         else:
@@ -3031,7 +3027,7 @@ class Home(IndexHandler):
 
 
     def testGrowl(self, host=None, password=None):
-        self.h['Cache-Control'] = "max-age=0,no-cache,no-store"
+        self.set_header('Cache-Control', "max-age=0,no-cache,no-store")
 
         host = config.clean_host(host, default_port=23053)
 
@@ -3048,7 +3044,7 @@ class Home(IndexHandler):
 
 
     def testProwl(self, prowl_api=None, prowl_priority=0):
-        self.h['Cache-Control'] = "max-age=0,no-cache,no-store"
+        self.set_header('Cache-Control', "max-age=0,no-cache,no-store")
 
         result = notifiers.prowl_notifier.test_notify(prowl_api, prowl_priority)
         if result:
@@ -3058,7 +3054,7 @@ class Home(IndexHandler):
 
 
     def testBoxcar(self, username=None):
-        self.h['Cache-Control'] = "max-age=0,no-cache,no-store"
+        self.set_header('Cache-Control', "max-age=0,no-cache,no-store")
 
         result = notifiers.boxcar_notifier.test_notify(username)
         if result:
@@ -3068,7 +3064,7 @@ class Home(IndexHandler):
 
 
     def testBoxcar2(self, accesstoken=None):
-        self.h['Cache-Control'] = "max-age=0,no-cache,no-store"
+        self.set_header('Cache-Control', "max-age=0,no-cache,no-store")
 
         result = notifiers.boxcar2_notifier.test_notify(accesstoken)
         if result:
@@ -3078,7 +3074,7 @@ class Home(IndexHandler):
 
 
     def testPushover(self, userKey=None):
-        self.h['Cache-Control'] = "max-age=0,no-cache,no-store"
+        self.set_header('Cache-Control', "max-age=0,no-cache,no-store")
 
         result = notifiers.pushover_notifier.test_notify(userKey)
         if result:
@@ -3088,13 +3084,13 @@ class Home(IndexHandler):
 
 
     def twitterStep1(self, *args, **kwargs):
-        self.h['Cache-Control'] = "max-age=0,no-cache,no-store"
+        self.set_header('Cache-Control', "max-age=0,no-cache,no-store")
 
         return notifiers.twitter_notifier._get_authorization()
 
 
     def twitterStep2(self, key):
-        self.h['Cache-Control'] = "max-age=0,no-cache,no-store"
+        self.set_header('Cache-Control', "max-age=0,no-cache,no-store")
 
         result = notifiers.twitter_notifier._get_credentials(key)
         logger.log(u"result: " + str(result))
@@ -3105,7 +3101,7 @@ class Home(IndexHandler):
 
 
     def testTwitter(self, *args, **kwargs):
-        self.h['Cache-Control'] = "max-age=0,no-cache,no-store"
+        self.set_header('Cache-Control', "max-age=0,no-cache,no-store")
 
         result = notifiers.twitter_notifier.test_notify()
         if result:
@@ -3115,7 +3111,7 @@ class Home(IndexHandler):
 
 
     def testXBMC(self, host=None, username=None, password=None):
-        self.h['Cache-Control'] = "max-age=0,no-cache,no-store"
+        self.set_header('Cache-Control', "max-age=0,no-cache,no-store")
 
         host = config.clean_hosts(host)
         finalResult = ''
@@ -3131,7 +3127,7 @@ class Home(IndexHandler):
 
 
     def testPLEX(self, host=None, username=None, password=None):
-        self.h['Cache-Control'] = "max-age=0,no-cache,no-store"
+        self.set_header('Cache-Control', "max-age=0,no-cache,no-store")
 
         finalResult = ''
         for curHost in [x.strip() for x in host.split(",")]:
@@ -3146,7 +3142,7 @@ class Home(IndexHandler):
 
 
     def testLibnotify(self, *args, **kwargs):
-        self.h['Cache-Control'] = "max-age=0,no-cache,no-store"
+        self.set_header('Cache-Control', "max-age=0,no-cache,no-store")
 
         if notifiers.libnotify_notifier.test_notify():
             return "Tried sending desktop notification via libnotify"
@@ -3155,7 +3151,7 @@ class Home(IndexHandler):
 
 
     def testNMJ(self, host=None, database=None, mount=None):
-        self.h['Cache-Control'] = "max-age=0,no-cache,no-store"
+        self.set_header('Cache-Control', "max-age=0,no-cache,no-store")
 
         host = config.clean_host(host)
         result = notifiers.nmj_notifier.test_notify(urllib.unquote_plus(host), database, mount)
@@ -3166,7 +3162,7 @@ class Home(IndexHandler):
 
 
     def settingsNMJ(self, host=None):
-        self.h['Cache-Control'] = "max-age=0,no-cache,no-store"
+        self.set_header('Cache-Control', "max-age=0,no-cache,no-store")
 
         host = config.clean_host(host)
         result = notifiers.nmj_notifier.notify_settings(urllib.unquote_plus(host))
@@ -3178,7 +3174,7 @@ class Home(IndexHandler):
 
 
     def testNMJv2(self, host=None):
-        self.h['Cache-Control'] = "max-age=0,no-cache,no-store"
+        self.set_header('Cache-Control', "max-age=0,no-cache,no-store")
 
         host = config.clean_host(host)
         result = notifiers.nmjv2_notifier.test_notify(urllib.unquote_plus(host))
@@ -3189,7 +3185,7 @@ class Home(IndexHandler):
 
 
     def settingsNMJv2(self, host=None, dbloc=None, instance=None):
-        self.h['Cache-Control'] = "max-age=0,no-cache,no-store"
+        self.set_header('Cache-Control', "max-age=0,no-cache,no-store")
 
         host = config.clean_host(host)
         result = notifiers.nmjv2_notifier.notify_settings(urllib.unquote_plus(host), dbloc, instance)
@@ -3202,7 +3198,7 @@ class Home(IndexHandler):
 
 
     def testTrakt(self, api=None, username=None, password=None):
-        self.h['Cache-Control'] = "max-age=0,no-cache,no-store"
+        self.set_header('Cache-Control', "max-age=0,no-cache,no-store")
 
         result = notifiers.trakt_notifier.test_notify(api, username, password)
         if result:
@@ -3212,7 +3208,7 @@ class Home(IndexHandler):
 
 
     def loadShowNotifyLists(self, *args, **kwargs):
-        self.h['Cache-Control'] = "max-age=0,no-cache,no-store"
+        self.set_header('Cache-Control', "max-age=0,no-cache,no-store")
 
         with db.DBConnection() as myDB:
             rows = myDB.select("SELECT show_id, show_name, notify_list FROM tv_shows ORDER BY show_name ASC")
@@ -3227,7 +3223,7 @@ class Home(IndexHandler):
 
 
     def testEmail(self, host=None, port=None, smtp_from=None, use_tls=None, user=None, pwd=None, to=None):
-        self.h['Cache-Control'] = "max-age=0,no-cache,no-store"
+        self.set_header('Cache-Control', "max-age=0,no-cache,no-store")
 
         host = config.clean_host(host)
         if notifiers.email_notifier.test_notify(host, port, smtp_from, use_tls, user, pwd, to):
@@ -3237,7 +3233,7 @@ class Home(IndexHandler):
 
 
     def testNMA(self, nma_api=None, nma_priority=0):
-        self.h['Cache-Control'] = "max-age=0,no-cache,no-store"
+        self.set_header('Cache-Control', "max-age=0,no-cache,no-store")
 
         result = notifiers.nma_notifier.test_notify(nma_api, nma_priority)
         if result:
@@ -3247,7 +3243,7 @@ class Home(IndexHandler):
 
 
     def testPushalot(self, authorizationToken=None):
-        self.h['Cache-Control'] = "max-age=0,no-cache,no-store"
+        self.set_header('Cache-Control', "max-age=0,no-cache,no-store")
 
         result = notifiers.pushalot_notifier.test_notify(authorizationToken)
         if result:
@@ -3257,7 +3253,7 @@ class Home(IndexHandler):
 
 
     def testPushbullet(self, api=None):
-        self.h['Cache-Control'] = "max-age=0,no-cache,no-store"
+        self.set_header('Cache-Control', "max-age=0,no-cache,no-store")
 
         result = notifiers.pushbullet_notifier.test_notify(api)
         if result:
@@ -3267,7 +3263,7 @@ class Home(IndexHandler):
 
 
     def getPushbulletDevices(self, api=None):
-        self.h['Cache-Control'] = "max-age=0,no-cache,no-store"
+        self.set_header('Cache-Control', "max-age=0,no-cache,no-store")
 
         result = notifiers.pushbullet_notifier.get_devices(api)
         if result:
@@ -3306,11 +3302,15 @@ class Home(IndexHandler):
         if str(pid) != str(sickbeard.PID):
             self.redirect("/home/")
 
+        # auto-reload
+        tornado.autoreload.start(IOLoop.current())
+        tornado.autoreload.add_reload_hook(sickbeard.autoreload_shutdown)
+
         updated = sickbeard.versionCheckScheduler.action.update()  # @UndefinedVariable
 
         if updated:
             # do a hard restart
-            threading.Timer(2, sickbeard.invoke_restart, [False]).start()
+            #threading.Timer(2, sickbeard.invoke_restart, [False]).start()
             t = PageTemplate(file="restart_bare.tmpl")
             return _munge(t)
         else:
@@ -4215,7 +4215,7 @@ class UI(IndexHandler):
         ui.notifications.message('Test 1', 'This is test number 1')
         ui.notifications.error('Test 2', 'This is test number 2')
 
-        "ok"
+        return "ok"
 
 
     def get_messages(self, *args, **kwargs):
@@ -4227,4 +4227,4 @@ class UI(IndexHandler):
                                                                      'type': cur_notification.type}
             cur_notification_num += 1
 
-        json.dumps(messages)
+        return json.dumps(messages)

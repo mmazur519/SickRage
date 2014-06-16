@@ -17,7 +17,6 @@
 # along with SickRage.  If not, see <http://www.gnu.org/licenses/>.
 
 from __future__ import with_statement
-import traceback
 
 import webbrowser
 import time
@@ -105,6 +104,7 @@ CUR_COMMIT_HASH = None
 INIT_LOCK = Lock()
 __INITIALIZED__ = False
 started = False
+restarted = False
 
 ACTUAL_LOG_DIR = None
 LOG_DIR = None
@@ -1278,7 +1278,7 @@ def remove_pid_file(PIDFILE):
 def sig_handler(signum=None, frame=None):
     if type(signum) != type(None):
         logger.log(u"Signal %i caught, saving and exiting..." % int(signum))
-        saveAndShutdown()
+        webserveInit.shutdown()
 
 def saveAll():
     global showList
@@ -1292,24 +1292,25 @@ def saveAll():
     logger.log(u"Saving config file to disk")
     save_config()
 
-def saveAndShutdown(restart=False):
-    if not restart:
-        logger.log('Shutting down tornado')
+def cleanup_tornado_sockets(io_loop):
+    for fd in io_loop._handlers.keys():
         try:
-            IOLoop.current().stop()
-        except RuntimeError:
+            os.close(fd)
+        except Exception:
             pass
-        except:
-            logger.log('Failed shutting down the server: %s' % traceback.format_exc(), logger.ERROR)
+
+def saveAndShutdown():
 
     halt()
     saveAll()
+
+    cleanup_tornado_sockets(IOLoop.current())
 
     if CREATEPID:
         logger.log(u"Removing pidfile " + str(PIDFILE))
         remove_pid_file(PIDFILE)
 
-    if restart:
+    if restarted:
         install_type = versionCheckScheduler.action.install_type
 
         popen_list = []
@@ -1352,18 +1353,20 @@ def invoke_restart(soft=True):
 
 
 def invoke_shutdown():
-    invoke_command(saveAndShutdown)
+    invoke_command(webserveInit.shutdown)
 
 
 def restart(soft=True):
+    global restarted
+
     if soft:
         halt()
         saveAll()
         logger.log(u"Re-initializing all data")
         initialize()
-
     else:
-        saveAndShutdown(restart=True)
+        restarted=True
+        webserveInit.shutdown()
 
 
 def save_config():
@@ -1817,3 +1820,11 @@ def getEpList(epIDs, showid=None):
         epList.append(curEpObj)
 
     return epList
+
+
+def autoreload_shutdown():
+    logger.log('SickRage is now auto-reloading, please stand by ...')
+    webserveInit.server.stop()
+    halt()
+    saveAll()
+    cleanup_tornado_sockets(IOLoop.current())
