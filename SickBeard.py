@@ -60,6 +60,7 @@ from sickbeard import db
 from sickbeard.tv import TVShow
 from sickbeard import logger
 from sickbeard import webserveInit
+from sickbeard import autoreload_shutdown
 from sickbeard.version import SICKBEARD_VERSION
 from sickbeard.databases.mainDB import MIN_DB_VERSION
 from sickbeard.databases.mainDB import MAX_DB_VERSION
@@ -388,9 +389,9 @@ def main():
     io_loop.add_timeout(datetime.timedelta(seconds=5), startup)
 
     # autoreload.
+    tornado.autoreload.add_reload_hook(autoreload_shutdown)
     if sickbeard.AUTO_UPDATE:
         tornado.autoreload.start(io_loop)
-        tornado.autoreload.add_reload_hook(sickbeard.autoreload_shutdown)
 
     # start IOLoop.
     io_loop.start()

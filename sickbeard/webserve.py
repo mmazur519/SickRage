@@ -18,11 +18,13 @@
 
 from __future__ import with_statement
 import base64
+import functools
 import inspect
 
 import os.path
 
 import time
+import traceback
 import urllib
 import re
 import threading
@@ -79,47 +81,51 @@ from lib import adba
 
 from Cheetah.Template import Template
 from tornado import gen, autoreload
-from tornado.web import RequestHandler, HTTPError, asynchronous, authenticated
+from tornado.web import RequestHandler, RedirectHandler, HTTPError, asynchronous
 from tornado.ioloop import IOLoop
 
 # def _handle_reverse_proxy():
-#    if sickbeard.HANDLE_REVERSE_PROXY:
-#        cherrypy.lib.cptools.proxy()
+# if sickbeard.HANDLE_REVERSE_PROXY:
+# cherrypy.lib.cptools.proxy()
 
 
 # cherrypy.tools.handle_reverse_proxy = cherrypy.Tool('before_handler', _handle_reverse_proxy)
 
 req_headers = None
 
-def require_basic_auth(handler_class):
+
+def authenticated(handler_class):
     def wrap_execute(handler_execute):
-        def require_basic_auth(handler, kwargs):
-            def get_auth():
+        def basicauth(handler, transforms, *args, **kwargs):
+            def _request_basic_auth(handler):
                 handler.set_status(401)
                 handler.set_header('WWW-Authenticate', 'Basic realm=Restricted')
                 handler._transforms = []
                 handler.finish()
                 return False
 
-            if not sickbeard.WEB_USERNAME and not sickbeard.WEB_PASSWORD:
-                if not handler.get_secure_cookie("user"):
-                    handler.set_secure_cookie("user", str(time.time()))
-                return True
-
-            auth_header = handler.request.headers.get('Authorization')
-            if auth_header and auth_header.startswith('Basic '):
-                auth_decoded = base64.decodestring(auth_header[6:])
-                basicauth_user, basicauth_pass = auth_decoded.split(':', 2)
-                if basicauth_user == sickbeard.WEB_USERNAME and basicauth_pass == sickbeard.WEB_PASSWORD:
-                    if not handler.get_secure_cookie("user"):
-                        handler.set_secure_cookie("user", str(time.time()))
+            try:
+                if not (sickbeard.WEB_USERNAME and sickbeard.WEB_PASSWORD):
                     return True
 
-            handler.clear_cookie("user")
-            get_auth()
+                auth_hdr = handler.request.headers.get('Authorization')
+
+                if auth_hdr == None:
+                    return _request_basic_auth(handler)
+                if not auth_hdr.startswith('Basic '):
+                    return _request_basic_auth(handler)
+
+                auth_decoded = base64.decodestring(auth_hdr[6:])
+                username, password = auth_decoded.split(':', 2)
+
+                if username != sickbeard.WEB_USERNAME or password != sickbeard.WEB_PASSWORD:
+                    return _request_basic_auth(handler)
+            except Exception, e:
+                return _request_basic_auth(handler)
+            return True
 
         def _execute(self, transforms, *args, **kwargs):
-            if not require_basic_auth(self, kwargs):
+            if not basicauth(self, transforms, *args, **kwargs):
                 return False
             return handler_execute(self, transforms, *args, **kwargs)
 
@@ -128,13 +134,8 @@ def require_basic_auth(handler_class):
     handler_class._execute = wrap_execute(handler_class._execute)
     return handler_class
 
-@require_basic_auth
-class RedirectHandler(RequestHandler):
-
-    def get(self, path, **kwargs):
-        self.redirect(path, permanent=True)
-
-class IndexHandler(RedirectHandler):
+@authenticated
+class IndexHandler(RequestHandler):
     def __init__(self, application, request, **kwargs):
         super(IndexHandler, self).__init__(application, request, **kwargs)
         global req_headers
@@ -163,7 +164,7 @@ class IndexHandler(RedirectHandler):
         if path.startswith('/api'):
             apikey = path.strip('/').split('/')[-1]
             method = path.strip('/').split('/')[0]
-            self.request.arguments.update({'apikey':[apikey]})
+            self.request.arguments.update({'apikey': [apikey]})
 
         def pred(c):
             return inspect.isclass(c) and c.__module__ == pred.__module__
@@ -197,29 +198,25 @@ class IndexHandler(RedirectHandler):
                 else:
                     return func()
 
-        if self.request.uri != ('/'):
-            raise HTTPError(404)
+        raise HTTPError(404)
 
-    def get_response(self):
-        raise gen.Return('hello')
+    def redirect(self, url, permanent=False, status=None):
+        if not self._transforms:
+            self._transforms = []
 
-    def get_current_user(self):
-        return self.get_secure_cookie("user")
+        super(IndexHandler, self).redirect(url, permanent, status)
 
-    @authenticated
     @asynchronous
-    @gen.coroutine
     def get(self, *args, **kwargs):
-        resp = yield self.get_response()
-        self.finish(resp)
-
-    @gen.coroutine
-    def get_response(self):
-        raise gen.Return(self._dispatch())
+        try:
+            self.finish(self._dispatch())
+        except Exception as e:
+            logger.log(ex(e), logger.ERROR)
+            logger.log(u"Traceback: " + traceback.format_exc(), logger.DEBUG)
 
     def post(self, *args, **kwargs):
-        self.finish(self._dispatch())
-
+        return self._dispatch()
+    
     def robots_txt(self, *args, **kwargs):
         """ Keep web crawlers out """
         self.set_header('Content-Type', 'text/plain')
@@ -450,9 +447,6 @@ class IndexHandler(RedirectHandler):
 
     browser = WebFileBrowser
 
-class LoginHandler(IndexHandler):
-    def get(self):
-        self.redirect(self.get_argument("next", u"/"))
 
 class PageTemplate(Template):
     def __init__(self, *args, **KWs):
@@ -614,16 +608,6 @@ class ManageSearches(IndexHandler):
             sickbeard.searchQueueScheduler.action.pause_backlog()  # @UndefinedVariable
         else:
             sickbeard.searchQueueScheduler.action.unpause_backlog()  # @UndefinedVariable
-
-        self.redirect("/manage/manageSearches/")
-
-
-    def forceVersionCheck(self, *args, **kwargs):
-
-        # force a check to see if there is a new version
-        result = sickbeard.versionCheckScheduler.action.check_for_new_version(force=True)  # @UndefinedVariable
-        if result:
-            logger.log(u"Forcing version check")
 
         self.redirect("/manage/manageSearches/")
 
@@ -1481,8 +1465,7 @@ class ConfigGeneral(IndexHandler):
         else:
             ui.notifications.message('Configuration Saved', ek.ek(os.path.join, sickbeard.CONFIG_FILE))
 
-        self.redirect("/config/general/")
-
+        self.redirect("/home/")
 
 class ConfigSearch(IndexHandler):
     def index(self, *args, **kwargs):
@@ -1565,8 +1548,6 @@ class ConfigSearch(IndexHandler):
                                    '<br />\n'.join(results))
         else:
             ui.notifications.message('Configuration Saved', ek.ek(os.path.join, sickbeard.CONFIG_FILE))
-
-        self.redirect("/config/search/")
 
 
 class ConfigPostProcessing(IndexHandler):
@@ -1670,8 +1651,6 @@ class ConfigPostProcessing(IndexHandler):
                                    '<br />\n'.join(results))
         else:
             ui.notifications.message('Configuration Saved', ek.ek(os.path.join, sickbeard.CONFIG_FILE))
-
-        self.redirect("/config/postProcessing/")
 
 
     def testNaming(self, pattern=None, multi=None, abd=False, sports=False, anime_type=None):
@@ -2111,8 +2090,6 @@ class ConfigProviders(IndexHandler):
         else:
             ui.notifications.message('Configuration Saved', ek.ek(os.path.join, sickbeard.CONFIG_FILE))
 
-        self.redirect("/config/providers/")
-
 
 class ConfigNotifications(IndexHandler):
     def index(self, *args, **kwargs):
@@ -2314,8 +2291,6 @@ class ConfigNotifications(IndexHandler):
         else:
             ui.notifications.message('Configuration Saved', ek.ek(os.path.join, sickbeard.CONFIG_FILE))
 
-        self.redirect("/config/notifications/")
-
 
 class ConfigSubtitles(IndexHandler):
     def index(self, *args, **kwargs):
@@ -2373,8 +2348,6 @@ class ConfigSubtitles(IndexHandler):
         else:
             ui.notifications.message('Configuration Saved', ek.ek(os.path.join, sickbeard.CONFIG_FILE))
 
-        self.redirect("/config/subtitles/")
-
 
 class ConfigAnime(IndexHandler):
     def index(self, *args, **kwargs):
@@ -2419,8 +2392,6 @@ class ConfigAnime(IndexHandler):
                                    '<br />\n'.join(results))
         else:
             ui.notifications.message('Configuration Saved', ek.ek(os.path.join, sickbeard.CONFIG_FILE))
-
-        self.redirect("/config/anime/")
 
 
 class Config(IndexHandler):
@@ -2476,6 +2447,14 @@ class HomePostProcess(IndexHandler):
         t.submenu = HomeMenu()
         return _munge(t)
 
+
+    def forceVersionCheck(self, *args, **kwargs):
+
+        # force a check to see if there is a new version
+        if sickbeard.versionCheckScheduler.action.check_for_new_version(force=True):
+            logger.log(u"Forcing version check")
+
+        self.redirect("/home/")
 
     def processEpisode(self, dir=None, nzbName=None, jobName=None, quiet=None, process_method=None, force=None,
                        is_priority=None, failed="0", type="auto"):
@@ -3304,7 +3283,6 @@ class Home(IndexHandler):
 
         # auto-reload
         tornado.autoreload.start(IOLoop.current())
-        tornado.autoreload.add_reload_hook(sickbeard.autoreload_shutdown)
 
         updated = sickbeard.versionCheckScheduler.action.update()  # @UndefinedVariable
 
@@ -4216,7 +4194,6 @@ class UI(IndexHandler):
         ui.notifications.error('Test 2', 'This is test number 2')
 
         return "ok"
-
 
     def get_messages(self, *args, **kwargs):
         messages = {}
