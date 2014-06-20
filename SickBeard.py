@@ -21,6 +21,7 @@
 from __future__ import with_statement
 
 import sys
+import shutil
 
 if sys.version_info < (2, 6):
     print "Sorry, requires Python 2.6 or 2.7."
@@ -132,6 +133,20 @@ def daemonize():
 
     dev_null = file('/dev/null', 'r')
     os.dup2(dev_null.fileno(), sys.stdin.fileno())
+
+def restore(srcDir, dstDir):
+    try:
+        for file in os.listdir(srcDir):
+            srcFile = os.path.join(srcDir, file)
+            dstFile = os.path.join(dstDir, file)
+            bakFile = os.path.join(dstDir, file + '.bak')
+            shutil.move(dstFile, bakFile)
+            shutil.move(srcFile, dstFile)
+
+        os.rmdir(srcDir)
+        return True
+    except:
+        return False
 
 def main():
     """
@@ -253,6 +268,14 @@ def main():
                 sys.stdout.write("Not running in daemon mode. PID file creation disabled.\n")
 
             sickbeard.CREATEPID = False
+
+    # Check if we need to perform a restore first
+    restoreDir = os.path.join(sickbeard.PROG_DIR, 'restore')
+    if os.path.exists(restoreDir):
+        if restore(restoreDir, sickbeard.PROG_DIR):
+            logger.log(u"Restore successful...")
+        else:
+            logger.log(u"Restore FAILED!", logger.ERROR)
 
     # If they don't specify a config file then put it in the data dir
     if not sickbeard.CONFIG_FILE:

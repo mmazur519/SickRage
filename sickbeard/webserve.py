@@ -18,13 +18,12 @@
 
 from __future__ import with_statement
 import base64
-import functools
 import inspect
+import zipfile
 
 import os.path
 
 import time
-import traceback
 import urllib
 import re
 import threading
@@ -84,6 +83,8 @@ from tornado import gen
 from tornado.web import RequestHandler, HTTPError, asynchronous
 
 req_headers = None
+
+
 def authenticated(handler_class):
     def wrap_execute(handler_execute):
         def basicauth(handler, transforms, *args, **kwargs):
@@ -98,7 +99,7 @@ def authenticated(handler_class):
                 if not (sickbeard.WEB_USERNAME and sickbeard.WEB_PASSWORD):
                     return True
                 elif handler.request.uri.startswith('/calendar') or (
-                    handler.request.uri.startswith('/api') and '/api/builder' not in handler.request.uri):
+                            handler.request.uri.startswith('/api') and '/api/builder' not in handler.request.uri):
                     return True
 
                 auth_hdr = handler.request.headers.get('Authorization')
@@ -129,9 +130,9 @@ def authenticated(handler_class):
 
 
 @authenticated
-class IndexHandler(RequestHandler):
+class MainHandler(RequestHandler):
     def __init__(self, application, request, **kwargs):
-        super(IndexHandler, self).__init__(application, request, **kwargs)
+        super(MainHandler, self).__init__(application, request, **kwargs)
         global req_headers
 
         sickbeard.REMOTE_IP = self.request.remote_ip
@@ -161,14 +162,14 @@ class IndexHandler(RequestHandler):
         elif status_code == 401:
             self.finish(self.http_error_401_handler())
         else:
-            super(IndexHandler, self).write_error(status_code, **kwargs)
+            super(MainHandler, self).write_error(status_code, **kwargs)
 
     def _dispatch(self):
 
         path = self.request.uri.replace(sickbeard.WEB_ROOT, '').split('?')[0]
 
         method = path.strip('/').split('/')[-1]
-        if path.startswith('/api'):
+        if path.startswith('/api') and method != 'builder':
             apikey = path.strip('/').split('/')[-1]
             method = path.strip('/').split('/')[0]
             self.request.arguments.update({'apikey': [apikey]})
@@ -205,10 +206,10 @@ class IndexHandler(RequestHandler):
                 return func(**args)
 
         raise HTTPError(404)
-    
+
     def redirect(self, url, permanent=False, status=None):
         self._transforms = []
-        super(IndexHandler, self).redirect(sickbeard.WEB_ROOT + url, permanent, status)
+        super(MainHandler, self).redirect(sickbeard.WEB_ROOT + url, permanent, status)
 
     @asynchronous
     @gen.engine
@@ -456,6 +457,7 @@ class IndexHandler(RequestHandler):
 
     browser = WebFileBrowser
 
+
 class PageTemplate(Template):
     def __init__(self, *args, **KWs):
         KWs['file'] = os.path.join(sickbeard.PROG_DIR, "gui/" + sickbeard.GUI_NAME + "/interfaces/default/",
@@ -497,7 +499,7 @@ class PageTemplate(Template):
         ]
 
 
-class IndexerWebUI(IndexHandler):
+class IndexerWebUI(MainHandler):
     def __init__(self, config, log=None):
         self.config = config
         self.log = log
@@ -565,7 +567,7 @@ def ManageMenu():
     return manageMenu
 
 
-class ManageSearches(IndexHandler):
+class ManageSearches(MainHandler):
     def index(self, *args, **kwargs):
         t = PageTemplate(file="manage_manageSearches.tmpl")
         # t.backlogPI = sickbeard.backlogSearchScheduler.action.getProgressIndicator()
@@ -620,7 +622,7 @@ class ManageSearches(IndexHandler):
         return self.redirect("/manage/manageSearches/")
 
 
-class Manage(IndexHandler):
+class Manage(MainHandler):
     def index(self, *args, **kwargs):
         t = PageTemplate(file="manage.tmpl")
         t.submenu = ManageMenu()
@@ -728,7 +730,8 @@ class Manage(IndexHandler):
                     all_eps = [str(x["season"]) + 'x' + str(x["episode"]) for x in all_eps_results]
                     to_change[cur_indexer_id] = all_eps
 
-                Home.setStatus(cur_indexer_id, '|'.join(to_change[cur_indexer_id]), newStatus, direct=True)
+                Home(self.application, self.request).setStatus(cur_indexer_id, '|'.join(to_change[cur_indexer_id]),
+                                                               newStatus, direct=True)
 
         return self.redirect('/manage/episodeStatuses/')
 
@@ -1050,7 +1053,7 @@ class Manage(IndexHandler):
 
             exceptions_list = []
 
-            curErrors += self.editShow(curShow, new_show_dir, anyQualities, bestQualities, exceptions_list,
+            curErrors += Home(self.application, self.request).editShow(curShow, new_show_dir, anyQualities, bestQualities, exceptions_list,
                                        new_flatten_folders, new_paused, subtitles=new_subtitles, anime=new_anime,
                                        scene=new_scene, directCall=True)
 
@@ -1226,7 +1229,7 @@ class Manage(IndexHandler):
         return _munge(t)
 
 
-class History(IndexHandler):
+class History(MainHandler):
     def index(self, limit=100):
 
         # sqlResults = myDB.select("SELECT h.*, show_name, name FROM history h, tv_shows s, tv_episodes e WHERE h.showid=s.indexer_id AND h.showid=e.showid AND h.season=e.season AND h.episode=e.episode ORDER BY date DESC LIMIT "+str(numPerPage*(p-1))+", "+str(numPerPage))
@@ -1319,6 +1322,7 @@ class History(IndexHandler):
 
 ConfigMenu = [
     {'title': 'General', 'path': 'config/general/'},
+    {'title': 'Backup/Restore', 'path': 'config/backuprestore/'},
     {'title': 'Search Settings', 'path': 'config/search/'},
     {'title': 'Search Providers', 'path': 'config/providers/'},
     {'title': 'Subtitles Settings', 'path': 'config/subtitles/'},
@@ -1328,7 +1332,7 @@ ConfigMenu = [
 ]
 
 
-class ConfigGeneral(IndexHandler):
+class ConfigGeneral(MainHandler):
     def index(self, *args, **kwargs):
 
         t = PageTemplate(file="config_general.tmpl")
@@ -1474,7 +1478,56 @@ class ConfigGeneral(IndexHandler):
             ui.notifications.message('Configuration Saved', ek.ek(os.path.join, sickbeard.CONFIG_FILE))
 
 
-class ConfigSearch(IndexHandler):
+class ConfigBackupRestore(MainHandler):
+    def index(self, *args, **kwargs):
+        t = PageTemplate(file="config_backuprestore.tmpl")
+        t.submenu = ConfigMenu
+        return _munge(t)
+
+    def backup(self, backupDir=None):
+        self.set_header('Cache-Control', "max-age=0,no-cache,no-store")
+
+        finalResult = ''
+
+        if backupDir:
+            source = [os.path.join(sickbeard.PROG_DIR, 'sickbeard.db'), os.path.join(sickbeard.PROG_DIR, 'config.ini')]
+            target = os.path.join(backupDir, 'sickrage-' + time.strftime('%Y%m%d%H%M%S') + '.zip')
+
+            if helpers.makeZip(source, target):
+                finalResult += "Successful backup to " + target
+            else:
+                finalResult += "Backup FAILED"
+        else:
+            finalResult += "You need to choose a folder to save your backup to!"
+
+        finalResult += "<br />\n"
+
+        return finalResult
+
+
+    def restore(self, backupFile=None):
+        self.set_header('Cache-Control', "max-age=0,no-cache,no-store")
+
+        finalResult = ''
+
+        if backupFile:
+            source = backupFile
+            target_dir = os.path.join(sickbeard.PROG_DIR, 'restore')
+
+            if helpers.extractZip(source, target_dir):
+                finalResult += "Successfully extracted restore files to " + target_dir
+                finalResult += "<br>Restart sickrage to complete the restore."
+            else:
+                finalResult += "Restore FAILED"
+        else:
+            finalResult += "You need to select a backup file to restore!"
+
+        finalResult += "<br />\n"
+
+        return finalResult
+
+
+class ConfigSearch(MainHandler):
     def index(self, *args, **kwargs):
 
         t = PageTemplate(file="config_search.tmpl")
@@ -1513,10 +1566,6 @@ class ConfigSearch(IndexHandler):
         sickbeard.IGNORE_WORDS = ignore_words if ignore_words else ""
 
         sickbeard.DOWNLOAD_PROPERS = config.checkbox_to_value(download_propers)
-        if sickbeard.DOWNLOAD_PROPERS:
-            sickbeard.properFinderScheduler.silent = False
-        else:
-            sickbeard.properFinderScheduler.silent = True
         sickbeard.CHECK_PROPERS_INTERVAL = check_propers_interval
 
         sickbeard.ALLOW_HIGH_PRIORITY = config.checkbox_to_value(allow_high_priority)
@@ -1557,7 +1606,7 @@ class ConfigSearch(IndexHandler):
             ui.notifications.message('Configuration Saved', ek.ek(os.path.join, sickbeard.CONFIG_FILE))
 
 
-class ConfigPostProcessing(IndexHandler):
+class ConfigPostProcessing(MainHandler):
     def index(self, *args, **kwargs):
 
         t = PageTemplate(file="config_postProcessing.tmpl")
@@ -1570,7 +1619,7 @@ class ConfigPostProcessing(IndexHandler):
                            wdtv_data=None, tivo_data=None, mede8er_data=None,
                            keep_processed_dir=None, process_method=None, process_automatically=None,
                            rename_episodes=None, airdate_episodes=None, unpack=None,
-                           move_associated_files=None, tv_download_dir=None, naming_custom_abd=None, naming_anime=None,
+                           move_associated_files=None, nfo_rename=None, tv_download_dir=None, naming_custom_abd=None, naming_anime=None,
                            naming_abd_pattern=None, naming_strip_year=None, use_failed_downloads=None,
                            delete_failed=None, extra_scripts=None, skip_removed_files=None,
                            naming_custom_sports=None, naming_sports_pattern=None, autopostprocesser_frequency=None):
@@ -1609,6 +1658,7 @@ class ConfigPostProcessing(IndexHandler):
         sickbeard.USE_FAILED_DOWNLOADS = config.checkbox_to_value(use_failed_downloads)
         sickbeard.DELETE_FAILED = config.checkbox_to_value(delete_failed)
         sickbeard.SKIP_REMOVED_FILES = config.checkbox_to_value(skip_removed_files)
+        sickbeard.NFO_RENAME = config.checkbox_to_value(nfo_rename)
 
         sickbeard.METADATA_XBMC = xbmc_data
         sickbeard.METADATA_XBMC_12PLUS = xbmc_12plus_data
@@ -1728,7 +1778,7 @@ class ConfigPostProcessing(IndexHandler):
             return 'not supported'
 
 
-class ConfigProviders(IndexHandler):
+class ConfigProviders(MainHandler):
     def index(self, *args, **kwargs):
         t = PageTemplate(file="config_providers.tmpl")
         t.submenu = ConfigMenu
@@ -2098,7 +2148,7 @@ class ConfigProviders(IndexHandler):
             ui.notifications.message('Configuration Saved', ek.ek(os.path.join, sickbeard.CONFIG_FILE))
 
 
-class ConfigNotifications(IndexHandler):
+class ConfigNotifications(MainHandler):
     def index(self, *args, **kwargs):
         t = PageTemplate(file="config_notifications.tmpl")
         t.submenu = ConfigMenu
@@ -2124,7 +2174,7 @@ class ConfigNotifications(IndexHandler):
                           use_boxcar2=None, boxcar2_notify_onsnatch=None, boxcar2_notify_ondownload=None,
                           boxcar2_notify_onsubtitledownload=None, boxcar2_accesstoken=None,
                           use_pushover=None, pushover_notify_onsnatch=None, pushover_notify_ondownload=None,
-                          pushover_notify_onsubtitledownload=None, pushover_userkey=None,
+                          pushover_notify_onsubtitledownload=None, pushover_userkey=None, pushover_apikey=None,
                           use_libnotify=None, libnotify_notify_onsnatch=None, libnotify_notify_ondownload=None,
                           libnotify_notify_onsubtitledownload=None,
                           use_nmj=None, nmj_host=None, nmj_database=None, nmj_mount=None, use_synoindex=None,
@@ -2209,6 +2259,7 @@ class ConfigNotifications(IndexHandler):
         sickbeard.PUSHOVER_NOTIFY_ONDOWNLOAD = config.checkbox_to_value(pushover_notify_ondownload)
         sickbeard.PUSHOVER_NOTIFY_ONSUBTITLEDOWNLOAD = config.checkbox_to_value(pushover_notify_onsubtitledownload)
         sickbeard.PUSHOVER_USERKEY = pushover_userkey
+        sickbeard.PUSHOVER_APIKEY = pushover_apikey
 
         sickbeard.USE_LIBNOTIFY = config.checkbox_to_value(use_libnotify)
         sickbeard.LIBNOTIFY_NOTIFY_ONSNATCH = config.checkbox_to_value(libnotify_notify_onsnatch)
@@ -2299,7 +2350,7 @@ class ConfigNotifications(IndexHandler):
             ui.notifications.message('Configuration Saved', ek.ek(os.path.join, sickbeard.CONFIG_FILE))
 
 
-class ConfigSubtitles(IndexHandler):
+class ConfigSubtitles(MainHandler):
     def index(self, *args, **kwargs):
         t = PageTemplate(file="config_subtitles.tmpl")
         t.submenu = ConfigMenu
@@ -2356,7 +2407,7 @@ class ConfigSubtitles(IndexHandler):
             ui.notifications.message('Configuration Saved', ek.ek(os.path.join, sickbeard.CONFIG_FILE))
 
 
-class ConfigAnime(IndexHandler):
+class ConfigAnime(MainHandler):
     def index(self, *args, **kwargs):
 
         t = PageTemplate(file="config_anime.tmpl")
@@ -2401,7 +2452,7 @@ class ConfigAnime(IndexHandler):
             ui.notifications.message('Configuration Saved', ek.ek(os.path.join, sickbeard.CONFIG_FILE))
 
 
-class Config(IndexHandler):
+class Config(MainHandler):
     def index(self, *args, **kwargs):
         t = PageTemplate(file="config.tmpl")
         t.submenu = ConfigMenu
@@ -2410,6 +2461,7 @@ class Config(IndexHandler):
 
     # map class names to urls
     general = ConfigGeneral
+    backuprestore = ConfigBackupRestore
     search = ConfigSearch
     providers = ConfigProviders
     subtitles = ConfigSubtitles
@@ -2447,7 +2499,7 @@ def HomeMenu():
     ]
 
 
-class HomePostProcess(IndexHandler):
+class HomePostProcess(MainHandler):
     def index(self, *args, **kwargs):
 
         t = PageTemplate(file="home_postprocess.tmpl")
@@ -2493,7 +2545,7 @@ class HomePostProcess(IndexHandler):
             return _genericMessage("Postprocessing results", result)
 
 
-class NewHomeAddShows(IndexHandler):
+class NewHomeAddShows(MainHandler):
     def index(self, *args, **kwargs):
 
         t = PageTemplate(file="home_addShows.tmpl")
@@ -2878,7 +2930,7 @@ ErrorLogsMenu = [
 ]
 
 
-class ErrorLogs(IndexHandler):
+class ErrorLogs(MainHandler):
     def index(self, *args, **kwargs):
 
         t = PageTemplate(file="errorlogs.tmpl")
@@ -2946,7 +2998,7 @@ class ErrorLogs(IndexHandler):
         return _munge(t)
 
 
-class Home(IndexHandler):
+class Home(MainHandler):
     def is_alive(self, *args, **kwargs):
         if 'callback' in kwargs and '_' in kwargs:
             callback, _ = kwargs['callback'], kwargs['_']
@@ -3059,10 +3111,10 @@ class Home(IndexHandler):
             return "Error sending Boxcar2 notification"
 
 
-    def testPushover(self, userKey=None):
+    def testPushover(self, userKey=None, apiKey=None):
         self.set_header('Cache-Control', "max-age=0,no-cache,no-store")
 
-        result = notifiers.pushover_notifier.test_notify(userKey)
+        result = notifiers.pushover_notifier.test_notify(userKey, apiKey)
         if result:
             return "Pushover notification succeeded. Check your Pushover clients to make sure it worked"
         else:
@@ -4193,7 +4245,7 @@ class Home(IndexHandler):
         return json.dumps({'result': 'failure'})
 
 
-class UI(IndexHandler):
+class UI(MainHandler):
     def add_message(self, *args, **kwargs):
         ui.notifications.message('Test 1', 'This is test number 1')
         ui.notifications.error('Test 2', 'This is test number 2')

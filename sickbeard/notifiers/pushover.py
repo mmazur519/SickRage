@@ -13,29 +13,27 @@
 # SickRage is distributed in the hope that it will be useful,
 # but WITHOUT ANY WARRANTY; without even the implied warranty of
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-#  GNU General Public License for more details.
+# GNU General Public License for more details.
 #
 # You should have received a copy of the GNU General Public License
 # along with SickRage.  If not, see <http://www.gnu.org/licenses/>.
-
+import httplib
 import urllib, urllib2
 import time
 
 import sickbeard
-
 from sickbeard import logger
 from sickbeard.common import notifyStrings, NOTIFY_SNATCH, NOTIFY_DOWNLOAD, NOTIFY_SUBTITLE_DOWNLOAD
 from sickbeard.exceptions import ex
 
 API_URL = "https://api.pushover.net/1/messages.json"
-API_KEY = "awKfdt263PLaEWV9RXuSn4c46qoAyA"
 
 
 class PushoverNotifier:
-    def test_notify(self, userKey=None):
-        return self._notifyPushover("This is a test notification from SickRage", 'Test', userKey, force=True)
+    def test_notify(self, userKey=None, apiKey=None):
+        return self._notifyPushover("This is a test notification from SickRage", 'Test', userKey, apiKey, force=True)
 
-    def _sendPushover(self, msg, title, userKey=None):
+    def _sendPushover(self, msg, title, userKey=None, apiKey=None):
         """
         Sends a pushover notification to the address provided
         
@@ -46,27 +44,30 @@ class PushoverNotifier:
         returns: True if the message succeeded, False otherwise
         """
 
-        if not userKey:
+        if userKey == None:
             userKey = sickbeard.PUSHOVER_USERKEY
+
+        if apiKey == None:
+            apiKey = sickbeard.PUSHOVER_APIKEY
+
+        logger.log("Pushover API KEY in use: " + apiKey, logger.DEBUG)
 
         # build up the URL and parameters
         msg = msg.strip()
-        curUrl = API_URL
-
-        data = urllib.urlencode({
-            'token': API_KEY,
-            'title': title,
-            'user': userKey,
-            'message': msg.encode('utf-8'),
-            'timestamp': int(time.time())
-        })
-
 
         # send the request to pushover
         try:
-            req = urllib2.Request(curUrl)
-            handle = urllib2.urlopen(req, data)
-            handle.close()
+            conn = httplib.HTTPSConnection("api.pushover.net:443")
+            conn.request("POST", "/1/messages.json",
+                         urllib.urlencode({
+                             "token": apiKey,
+                             "user": userKey,
+                             "title": title.encode('utf-8'),
+                             "message": msg.encode('utf-8'),
+                             'timestamp': int(time.time()),
+                             "retry": 60,
+                             "expire": 3600,
+                         }), {"Content-type": "application/x-www-form-urlencoded"})
 
         except urllib2.HTTPError, e:
             # if we get an error back that doesn't have an error code then who knows what's really happening
@@ -85,7 +86,7 @@ class PushoverNotifier:
             elif e.code == 401:
 
                 #HTTP status 401 if the user doesn't have the service added
-                subscribeNote = self._sendPushover(msg, title, userKey)
+                subscribeNote = self._sendPushover(msg, title, userKey, apiKey)
                 if subscribeNote:
                     logger.log("Subscription send", logger.DEBUG)
                     return True
@@ -96,6 +97,11 @@ class PushoverNotifier:
             # If you receive an HTTP status code of 400, it is because you failed to send the proper parameters
             elif e.code == 400:
                 logger.log("Wrong data sent to pushover", logger.ERROR)
+                return False
+
+            # If you receive a HTTP status code of 429, it is because the message limit has been reached (free limit is 7,500)
+            elif e.code == 429:
+                logger.log("Pushover API message limit reached - try a different API key", logger.ERROR)
                 return False
 
         logger.log("Pushover notification successful.", logger.MESSAGE)
@@ -114,7 +120,7 @@ class PushoverNotifier:
         if sickbeard.PUSHOVER_NOTIFY_ONSUBTITLEDOWNLOAD:
             self._notifyPushover(title, ep_name + ": " + lang)
 
-    def _notifyPushover(self, title, message, userKey=None, force=False):
+    def _notifyPushover(self, title, message, userKey=None, apiKey=None, force=False):
         """
         Sends a pushover notification based on the provided info or SB config
 
@@ -130,8 +136,8 @@ class PushoverNotifier:
 
         logger.log("Sending notification for " + message, logger.DEBUG)
 
-        # self._sendPushover(message, title, userKey)
-        return self._sendPushover(message, title)
+        # self._sendPushover(message, title, userKey, apiKey)
+        return self._sendPushover(message, title, userKey, apiKey)
 
 
 notifier = PushoverNotifier
