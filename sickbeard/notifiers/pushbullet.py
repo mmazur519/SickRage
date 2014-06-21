@@ -27,7 +27,7 @@ from sickbeard import logger, common
 
 
 class PushbulletNotifier:
-    def test_notify(self, pushbullet_api):
+    def test_notify(self, pushbullet_api, pushbullet_device):
         return self._sendPushbullet(pushbullet_api, event="Test", message="Testing Pushbullet settings from SickRage",
                                     method="POST", notificationType="note", force=True)
 

@@ -236,12 +236,13 @@ $(document).ready(function(){
     $('#testPushbullet').click(function () {
         $('#testPushbullet-result').html(loading);
         var pushbullet_api = $("#pushbullet_api").val();
-        if($("#pushbullet_api").val() == '') {
+        var pushbullet_device = $("#pushbullet_device_list").val();
+		if($("#pushbullet_api").val() == '') {
             $('#testPushbullet-result').html("You didn't supply a Pushbullet api key");
             $("#pushbullet_api").focus();
             return false;
         }
-        $.get(sbRoot + "/home/testPushbullet", {'api': pushbullet_api},
+        $.get(sbRoot + "/home/testPushbullet", {'api': pushbullet_api, 'device': pushbullet_device},
             function (data) {
                 $('#testPushbullet-result').html(data);
             }
@@ -255,6 +256,7 @@ $(document).ready(function(){
         }
         
         var pushbullet_api = $("#pushbullet_api").val();
+		var pushbullet_devices = $("#pushbullet_device_list").val();
 
         if(!pushbullet_api) {
             $('#testPushbullet-result').html("You didn't supply a Pushbullet api key");
