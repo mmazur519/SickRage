@@ -3277,15 +3277,15 @@ class Home(MainHandler):
 
         result = notifiers.pushalot_notifier.test_notify(authorizationToken)
         if result:
-            return "Pushalot notification succeeded. Check your Pushalot clients to make sure it worked."
+            return "Pushalot notification succeeded. Check your Pushalot clients to make sure it worked"
         else:
             return "Error sending Pushalot notification"
 
 
-    def testPushbullet(self, api=None, device=None):
+    def testPushbullet(self, api=None):
         self.set_header('Cache-Control', "max-age=0,no-cache,no-store")
 
-        result = notifiers.pushbullet_notifier.test_notify(api,device)
+        result = notifiers.pushbullet_notifier.test_notify(api)
         if result:
             return "Pushbullet notification succeeded. Check your device to make sure it worked"
         else:
