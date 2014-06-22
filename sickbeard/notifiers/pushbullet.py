@@ -61,9 +61,9 @@ class PushbulletNotifier:
             pushbullet_device = sickbeard.PUSHBULLET_DEVICE
 
         if method == 'POST':
-            uri = '/pushes'
+            uri = '/api/pushes'
         else:
-            uri = '/devices'
+            uri = '/api/devices'
 
         logger.log(u"Pushbullet event: " + str(event), logger.DEBUG)
         logger.log(u"Pushbullet message: " + str(message), logger.DEBUG)
@@ -71,7 +71,7 @@ class PushbulletNotifier:
         logger.log(u"Pushbullet devices: " + str(pushbullet_device), logger.DEBUG)
         logger.log(u"Pushbullet notification type: " + str(notificationType), logger.DEBUG)
 
-        http_handler = HTTPSConnection("api.pushbullet.com/v2")
+        http_handler = HTTPSConnection("api.pushbullet.com")
 
         authString = base64.encodestring('%s:' % (pushbullet_api)).replace('\n', '')
 
