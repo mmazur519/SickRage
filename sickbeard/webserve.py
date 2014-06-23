@@ -154,11 +154,11 @@ class MainHandler(RequestHandler):
 
     def http_error_404_handler(self):
         """ Custom handler for 404 error, redirect back to main page """
-        self.redirect('/home/')
+        return self.redirect('/home/')
 
     def write_error(self, status_code, **kwargs):
         if status_code == 404:
-            self.redirect('/home/')
+            return self.redirect('/home/')
         elif status_code == 401:
             self.finish(self.http_error_401_handler())
         else:
@@ -209,7 +209,7 @@ class MainHandler(RequestHandler):
 
     def redirect(self, url, permanent=False, status=None):
         self._transforms = []
-        super(MainHandler, self).redirect(sickbeard.WEB_ROOT + url, permanent, status)
+        return super(MainHandler, self).redirect(sickbeard.WEB_ROOT + url, permanent, status)
 
     def get(self, *args, **kwargs):
         response = self._dispatch()
@@ -3479,9 +3479,9 @@ class Home(MainHandler):
 
     def plotDetails(self, show, season, episode):
         myDB = db.DBConnection()
-        result = myDB.action(
+        result = myDB.selectOne(
             "SELECT description FROM tv_episodes WHERE showid = ? AND season = ? AND episode = ?",
-            (int(show), int(season), int(episode))).fetchone()
+            (int(show), int(season), int(episode)))
         return result['description'] if result else 'Episode not found.'
 
 
