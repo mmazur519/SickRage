@@ -702,7 +702,7 @@ def get_absolute_number_from_season_and_episode(show, season, episode):
 
 def get_all_episodes_from_absolute_number(show, indexer_id, absolute_numbers):
     if len(absolute_numbers) == 0:
-        raise EpisodeNotFoundByAbsoluteNumberException()
+        raise EpisodeNotFoundByAbsoluteNumberException
 
     episodes = []
     season = None
@@ -718,7 +718,7 @@ def get_all_episodes_from_absolute_number(show, indexer_id, absolute_numbers):
         if ep:
             episodes.append(ep.episode)
         else:
-            raise EpisodeNotFoundByAbsoluteNumberException()
+            raise EpisodeNotFoundByAbsoluteNumberException
         season = ep.season  # this will always take the last found seson so eps that cross the season border are not handeled well
 
     return (season, episodes)
@@ -1170,7 +1170,8 @@ def makeZip(fileList, archive):
             a.write(f)
         a.close()
         return True
-    except:
+    except Exception as e:
+        logger.log(u"Zip creation error: " + str(e), logger.ERROR)
         return False
 
 
@@ -1198,5 +1199,6 @@ def extractZip(archive, targetDir):
             target.close()
         zip_file.close()
         return True
-    except:
+    except Exception as e:
+        logger.log(u"Zip extraction error: " + str(e), logger.ERROR)
         return False
