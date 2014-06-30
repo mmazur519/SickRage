@@ -129,26 +129,20 @@ class HTTPRedirect(Exception):
     """Exception raised when the request should be redirected."""
 
     def __init__(self, url, permanent=False, status=None):
-        self.url = url
+        self.url = urlparse.urljoin(sickbeard.WEB_ROOT, url)
         self.permanent = permanent
         self.status = status
-        Exception.__init__(self, url, permanent, status)
+        Exception.__init__(self, self.url, self.permanent, self.status)
 
     def __call__(self):
         """Use this exception as a request.handler (raise self)."""
         raise self
 
 def redirect(url, permanent=False, status=None):
-    url = urlparse.urljoin(sickbeard.WEB_ROOT, url)
     raise HTTPRedirect(url, permanent, status)
 
 @authenticated
 class MainHandler(RequestHandler):
-    def __init__(self, application, request, **kwargs):
-        super(MainHandler, self).__init__(application, request, **kwargs)
-        sickbeard.REMOTE_IP = self.request.headers.get('X-Forwarded-For',
-                                                  self.request.headers.get('X-Real-Ip', self.request.remote_ip))
-
     def http_error_401_handler(self):
         """ Custom handler for 401 error """
         return r'''<!DOCTYPE html>
@@ -165,7 +159,7 @@ class MainHandler(RequestHandler):
 
     def write_error(self, status_code, **kwargs):
         if status_code == 401:
-            self.write(self.http_error_401_handler())
+            self.finish(self.http_error_401_handler())
         elif status_code == 404:
             self.redirect('/home/')
         else:
@@ -177,6 +171,10 @@ class MainHandler(RequestHandler):
         path = self.request.uri.replace(sickbeard.WEB_ROOT, '').split('?')[0]
 
         method = path.strip('/').split('/')[-1]
+
+        if method == 'robots.txt':
+            method = 'robots_txt'
+
         if path.startswith('/api') and method != 'builder':
             apikey = path.strip('/').split('/')[-1]
             method = path.strip('/').split('/')[0]
@@ -217,20 +215,20 @@ class MainHandler(RequestHandler):
 
     def get(self, *args, **kwargs):
         try:
-            self.write(self._dispatch())
+            self.finish(self._dispatch())
         except HTTPRedirect,inst:
             self.redirect(inst.url, inst.permanent, inst.status)
 
     def post(self, *args, **kwargs):
         try:
-            self.write(self._dispatch())
+            self.finish(self._dispatch())
         except HTTPRedirect, inst:
             self.redirect(inst.url, inst.permanent, inst.status)
 
     def robots_txt(self, *args, **kwargs):
         """ Keep web crawlers out """
         self.set_header('Content-Type', 'text/plain')
-        return 'User-agent: *\nDisallow: /\n'
+        return "User-agent: *\nDisallow: /"
 
     def showPoster(self, show=None, which=None):
         # Redirect initial poster/banner thumb to default images
@@ -3049,6 +3047,7 @@ class Home(MainHandler):
         else:
             return "Error: Unsupported Request. Send jsonp request with 'callback' variable in the query string."
 
+        self.set_header('Cache-Control', 'max-age=0,no-cache,no-store')
         self.set_header('Content-Type', 'text/javascript')
         self.set_header('Access-Control-Allow-Origin', '*')
         self.set_header('Access-Control-Allow-Headers', 'x-requested-with')
@@ -3083,6 +3082,7 @@ class Home(MainHandler):
     postprocess = HomePostProcess
 
     def testSABnzbd(self, host=None, username=None, password=None, apikey=None):
+        self.set_header('Cache-Control', 'max-age=0,no-cache,no-store')
 
         host = config.clean_url(host)
 
@@ -3098,6 +3098,7 @@ class Home(MainHandler):
 
 
     def testTorrent(self, torrent_method=None, host=None, username=None, password=None):
+        self.set_header('Cache-Control', 'max-age=0,no-cache,no-store')
 
         host = config.clean_url(host)
 
@@ -3109,7 +3110,7 @@ class Home(MainHandler):
 
 
     def testGrowl(self, host=None, password=None):
-
+        self.set_header('Cache-Control', 'max-age=0,no-cache,no-store')
 
         host = config.clean_host(host, default_port=23053)
 
@@ -3126,7 +3127,7 @@ class Home(MainHandler):
 
 
     def testProwl(self, prowl_api=None, prowl_priority=0):
-
+        self.set_header('Cache-Control', 'max-age=0,no-cache,no-store')
 
         result = notifiers.prowl_notifier.test_notify(prowl_api, prowl_priority)
         if result:
@@ -3136,7 +3137,7 @@ class Home(MainHandler):
 
 
     def testBoxcar(self, username=None):
-
+        self.set_header('Cache-Control', 'max-age=0,no-cache,no-store')
 
         result = notifiers.boxcar_notifier.test_notify(username)
         if result:
@@ -3146,7 +3147,7 @@ class Home(MainHandler):
 
 
     def testBoxcar2(self, accesstoken=None):
-
+        self.set_header('Cache-Control', 'max-age=0,no-cache,no-store')
 
         result = notifiers.boxcar2_notifier.test_notify(accesstoken)
         if result:
@@ -3156,7 +3157,7 @@ class Home(MainHandler):
 
 
     def testPushover(self, userKey=None, apiKey=None):
-
+        self.set_header('Cache-Control', 'max-age=0,no-cache,no-store')
 
         result = notifiers.pushover_notifier.test_notify(userKey, apiKey)
         if result:
@@ -3166,13 +3167,13 @@ class Home(MainHandler):
 
 
     def twitterStep1(self, *args, **kwargs):
-
+        self.set_header('Cache-Control', 'max-age=0,no-cache,no-store')
 
         return notifiers.twitter_notifier._get_authorization()
 
 
     def twitterStep2(self, key):
-
+        self.set_header('Cache-Control', 'max-age=0,no-cache,no-store')
 
         result = notifiers.twitter_notifier._get_credentials(key)
         logger.log(u"result: " + str(result))
@@ -3183,7 +3184,7 @@ class Home(MainHandler):
 
 
     def testTwitter(self, *args, **kwargs):
-
+        self.set_header('Cache-Control', 'max-age=0,no-cache,no-store')
 
         result = notifiers.twitter_notifier.test_notify()
         if result:
@@ -3193,7 +3194,7 @@ class Home(MainHandler):
 
 
     def testXBMC(self, host=None, username=None, password=None):
-
+        self.set_header('Cache-Control', 'max-age=0,no-cache,no-store')
 
         host = config.clean_hosts(host)
         finalResult = ''
@@ -3209,7 +3210,7 @@ class Home(MainHandler):
 
 
     def testPLEX(self, host=None, username=None, password=None):
-
+        self.set_header('Cache-Control', 'max-age=0,no-cache,no-store')
 
         finalResult = ''
         for curHost in [x.strip() for x in host.split(",")]:
@@ -3224,7 +3225,7 @@ class Home(MainHandler):
 
 
     def testLibnotify(self, *args, **kwargs):
-
+        self.set_header('Cache-Control', 'max-age=0,no-cache,no-store')
 
         if notifiers.libnotify_notifier.test_notify():
             return "Tried sending desktop notification via libnotify"
@@ -3233,7 +3234,7 @@ class Home(MainHandler):
 
 
     def testNMJ(self, host=None, database=None, mount=None):
-
+        self.set_header('Cache-Control', 'max-age=0,no-cache,no-store')
 
         host = config.clean_host(host)
         result = notifiers.nmj_notifier.test_notify(urllib.unquote_plus(host), database, mount)
@@ -3244,7 +3245,7 @@ class Home(MainHandler):
 
 
     def settingsNMJ(self, host=None):
-
+        self.set_header('Cache-Control', 'max-age=0,no-cache,no-store')
 
         host = config.clean_host(host)
         result = notifiers.nmj_notifier.notify_settings(urllib.unquote_plus(host))
@@ -3256,7 +3257,7 @@ class Home(MainHandler):
 
 
     def testNMJv2(self, host=None):
-
+        self.set_header('Cache-Control', 'max-age=0,no-cache,no-store')
 
         host = config.clean_host(host)
         result = notifiers.nmjv2_notifier.test_notify(urllib.unquote_plus(host))
@@ -3267,7 +3268,7 @@ class Home(MainHandler):
 
 
     def settingsNMJv2(self, host=None, dbloc=None, instance=None):
-
+        self.set_header('Cache-Control', 'max-age=0,no-cache,no-store')
 
         host = config.clean_host(host)
         result = notifiers.nmjv2_notifier.notify_settings(urllib.unquote_plus(host), dbloc, instance)
@@ -3280,7 +3281,7 @@ class Home(MainHandler):
 
 
     def testTrakt(self, api=None, username=None, password=None):
-
+        self.set_header('Cache-Control', 'max-age=0,no-cache,no-store')
 
         result = notifiers.trakt_notifier.test_notify(api, username, password)
         if result:
@@ -3290,7 +3291,7 @@ class Home(MainHandler):
 
 
     def loadShowNotifyLists(self, *args, **kwargs):
-
+        self.set_header('Cache-Control', 'max-age=0,no-cache,no-store')
 
         myDB = db.DBConnection()
         rows = myDB.select("SELECT show_id, show_name, notify_list FROM tv_shows ORDER BY show_name ASC")
@@ -3305,7 +3306,7 @@ class Home(MainHandler):
 
 
     def testEmail(self, host=None, port=None, smtp_from=None, use_tls=None, user=None, pwd=None, to=None):
-
+        self.set_header('Cache-Control', 'max-age=0,no-cache,no-store')
 
         host = config.clean_host(host)
         if notifiers.email_notifier.test_notify(host, port, smtp_from, use_tls, user, pwd, to):
@@ -3315,7 +3316,7 @@ class Home(MainHandler):
 
 
     def testNMA(self, nma_api=None, nma_priority=0):
-
+        self.set_header('Cache-Control', 'max-age=0,no-cache,no-store')
 
         result = notifiers.nma_notifier.test_notify(nma_api, nma_priority)
         if result:
@@ -3325,7 +3326,7 @@ class Home(MainHandler):
 
 
     def testPushalot(self, authorizationToken=None):
-
+        self.set_header('Cache-Control', 'max-age=0,no-cache,no-store')
 
         result = notifiers.pushalot_notifier.test_notify(authorizationToken)
         if result:
@@ -3335,7 +3336,7 @@ class Home(MainHandler):
 
 
     def testPushbullet(self, api=None):
-
+        self.set_header('Cache-Control', 'max-age=0,no-cache,no-store')
 
         result = notifiers.pushbullet_notifier.test_notify(api)
         if result:
@@ -3345,7 +3346,7 @@ class Home(MainHandler):
 
 
     def getPushbulletDevices(self, api=None):
-
+        self.set_header('Cache-Control', 'max-age=0,no-cache,no-store')
 
         result = notifiers.pushbullet_notifier.get_devices(api)
         if result:
@@ -4303,7 +4304,7 @@ class UI(MainHandler):
     def get_messages(self):
         messages = {}
         cur_notification_num = 1
-        for cur_notification in ui.notifications.get_notifications():
+        for cur_notification in ui.notifications.get_notifications(self.request.remote_ip):
             messages['notification-' + str(cur_notification_num)] = {'title': cur_notification.title,
                                                                    'message': cur_notification.message,
                                                                    'type': cur_notification.type}

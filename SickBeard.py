@@ -19,7 +19,6 @@
 
 # Check needed software dependencies to nudge users to fix their setup
 from __future__ import with_statement
-import functools
 
 import sys
 import shutil
@@ -54,25 +53,20 @@ import threading
 import signal
 import traceback
 import getopt
-import time
 
 import sickbeard
-
-import tornado.ioloop
-import tornado.autoreload
 
 from sickbeard import db
 from sickbeard.tv import TVShow
 from sickbeard import logger
 from sickbeard import webserveInit
-from sickbeard import autoreload_shutdown
 from sickbeard.version import SICKBEARD_VERSION
 from sickbeard.databases.mainDB import MIN_DB_VERSION
 from sickbeard.databases.mainDB import MAX_DB_VERSION
 
 from lib.configobj import ConfigObj
 
-from tornado.ioloop import IOLoop, PeriodicCallback
+from tornado.ioloop import IOLoop
 
 signal.signal(signal.SIGINT, sickbeard.sig_handler)
 signal.signal(signal.SIGTERM, sickbeard.sig_handler)
@@ -83,6 +77,8 @@ def loadShowsFromDB():
     """
     Populates the showList with shows from the database
     """
+
+    logger.log(u"Loading initial show list")
 
     myDB = db.DBConnection()
     sqlResults = myDB.select("SELECT * FROM tv_shows")
@@ -329,17 +325,11 @@ def main():
     # Initialize the config and our threads
     sickbeard.initialize(consoleLogging=consoleLogging)
 
-    sickbeard.showList = []
-
     if sickbeard.DAEMON:
         daemonize()
 
     # Use this PID for everything
     sickbeard.PID = os.getpid()
-
-    # Build from the DB to start with
-    logger.log(u"Loading initial show list")
-    loadShowsFromDB()
 
     if forcedPort:
         logger.log(u"Forcing web server to port " + str(forcedPort))
@@ -387,6 +377,9 @@ def main():
         sys.exit()
 
     def startup():
+        # Build from the DB to start with
+        loadShowsFromDB()
+
         # Fire up all our threads
         sickbeard.start()
 

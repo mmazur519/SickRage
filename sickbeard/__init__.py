@@ -90,10 +90,10 @@ traktCheckerScheduler = None
 showList = None
 loadingShowList = None
 
-providerList = []
-newznabProviderList = []
-torrentRssProviderList = []
-metadata_provider_dict = {}
+providerList = None
+newznabProviderList = None
+torrentRssProviderList = None
+metadata_provider_dict = None
 
 NEWEST_VERSION = None
 NEWEST_VERSION_STRING = None
@@ -123,7 +123,6 @@ HANDLE_REVERSE_PROXY = None
 PROXY_SETTING = None
 
 LOCALHOST_IP = None
-REMOTE_IP = None
 
 CPU_PRESET = None
 
@@ -162,7 +161,7 @@ INDEXER_DEFAULT = None
 INDEXER_TIMEOUT = None
 SCENE_DEFAULT = None
 ANIME_DEFAULT = None
-PROVIDER_ORDER = []
+PROVIDER_ORDER = None
 
 NAMING_MULTI_EP = None
 NAMING_PATTERN = None
@@ -414,17 +413,17 @@ TIME_PRESET_W_SECONDS = None
 TIMEZONE_DISPLAY = None
 
 USE_SUBTITLES = False
-SUBTITLES_LANGUAGES = []
+SUBTITLES_LANGUAGES = None
 SUBTITLES_DIR = ''
-SUBTITLES_SERVICES_LIST = []
-SUBTITLES_SERVICES_ENABLED = []
+SUBTITLES_SERVICES_LIST = None
+SUBTITLES_SERVICES_ENABLED = None
 SUBTITLES_HISTORY = False
 SUBTITLES_FINDER_FREQUENCY = 1
 
 USE_FAILED_DOWNLOADS = False
 DELETE_FAILED = False
 
-EXTRA_SCRIPTS = []
+EXTRA_SCRIPTS = None
 
 GIT_PATH = None
 
@@ -476,7 +475,7 @@ def initialize(consoleLogging=True):
             GUI_NAME, HOME_LAYOUT, HISTORY_LAYOUT, DISPLAY_SHOW_SPECIALS, COMING_EPS_LAYOUT, COMING_EPS_SORT, COMING_EPS_DISPLAY_PAUSED, COMING_EPS_MISSED_RANGE, FUZZY_DATING, TRIM_ZERO, DATE_PRESET, TIME_PRESET, TIME_PRESET_W_SECONDS, \
             METADATA_WDTV, METADATA_TIVO, METADATA_MEDE8ER, IGNORE_WORDS, CALENDAR_UNPROTECTED, CREATE_MISSING_SHOW_DIRS, \
             ADD_SHOWS_WO_DIR, USE_SUBTITLES, SUBTITLES_LANGUAGES, SUBTITLES_DIR, SUBTITLES_SERVICES_LIST, SUBTITLES_SERVICES_ENABLED, SUBTITLES_HISTORY, SUBTITLES_FINDER_FREQUENCY, subtitlesFinderScheduler, \
-            USE_FAILED_DOWNLOADS, DELETE_FAILED, ANON_REDIRECT, LOCALHOST_IP, REMOTE_IP, TMDB_API_KEY, DEBUG, PROXY_SETTING, \
+            USE_FAILED_DOWNLOADS, DELETE_FAILED, ANON_REDIRECT, LOCALHOST_IP, TMDB_API_KEY, DEBUG, PROXY_SETTING, \
             AUTOPOSTPROCESSER_FREQUENCY, DEFAULT_AUTOPOSTPROCESSER_FREQUENCY, MIN_AUTOPOSTPROCESSER_FREQUENCY, \
             ANIME_DEFAULT, NAMING_ANIME, ANIMESUPPORT, USE_ANIDB, ANIDB_USERNAME, ANIDB_PASSWORD, ANIDB_USE_MYLIST, \
             ANIME_SPLIT_HOME, maintenanceScheduler, SCENE_DEFAULT, RES
@@ -1134,9 +1133,6 @@ def start():
 
             # start the maintenance scheduler
             maintenanceScheduler.thread.start()
-            logger.log(u"Performing initial maintenance tasks, please wait ...")
-            while maintenanceScheduler.action.amActive:
-                time.sleep(1)
 
             # start the daily search scheduler
             dailySearchScheduler.thread.start()
@@ -1303,13 +1299,6 @@ def saveAll():
     # save config
     logger.log(u"Saving config file to disk")
     save_config()
-
-def cleanup_tornado_sockets(io_loop):
-    for fd in io_loop._handlers.keys():
-        try:
-            os.close(fd)
-        except Exception:
-            pass
 
 def saveAndShutdown():
     halt()
