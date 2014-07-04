@@ -14,7 +14,7 @@
 # SickRage is distributed in the hope that it will be useful,
 # but WITHOUT ANY WARRANTY; without even the implied warranty of
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-#  GNU General Public License for more details.
+# GNU General Public License for more details.
 #
 # You should have received a copy of the GNU General Public License
 # along with SickRage.  If not, see <http://www.gnu.org/licenses/>.
@@ -27,7 +27,7 @@ import re
 
 import sickbeard
 
-from sickbeard import logger
+from sickbeard import logger, common
 from sickbeard import db
 from sickbeard.exceptions import ex
 
@@ -142,6 +142,10 @@ class EmailNotifier:
                 else:
                     logger.log("Download notification ERROR: %s" % self.last_err, logger.ERROR)
 
+
+    def notify_git_update(self, new_version="??"):
+        pass
+
     def _generate_recepients(self, show):
         addrs = []
 
@@ -165,7 +169,7 @@ class EmailNotifier:
 
     def _sendmail(self, host, port, smtp_from, use_tls, user, pwd, to, msg, smtpDebug=False):
         logger.log('HOST: %s; PORT: %s; FROM: %s, TLS: %s, USER: %s, PWD: %s, TO: %s' % (
-        host, port, smtp_from, use_tls, user, pwd, to), logger.DEBUG)
+            host, port, smtp_from, use_tls, user, pwd, to), logger.DEBUG)
         srv = smtplib.SMTP(host, int(port))
         if smtpDebug:
             srv.set_debuglevel(1)
