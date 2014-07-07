@@ -40,7 +40,7 @@ from sickbeard import name_cache
 from sickbeard import encodingKludge as ek
 from sickbeard.exceptions import ex
 
-from sickbeard.name_parser.parser import NameParser, InvalidNameException
+from sickbeard.name_parser.parser import NameParser, InvalidNameException, InvalidShowException
 
 from lib import adba
 
@@ -483,9 +483,8 @@ class PostProcessor(object):
         np = NameParser(file, useIndexers=True, convert=True)
         parse_result = np.parse(name)
 
-        # couldn't find this in our show list
-        if not parse_result.show:
-            return to_return
+        # show object
+        show = parse_result.show
 
         if parse_result.air_by_date:
             season = -1
@@ -497,7 +496,7 @@ class PostProcessor(object):
             season = parse_result.season_number
             episodes = parse_result.episode_numbers
 
-        to_return = (parse_result.show, season, episodes, parse_result.quality)
+        to_return = (show, season, episodes, parse_result.quality)
 
         self._finalize(parse_result)
         return to_return
@@ -603,7 +602,7 @@ class PostProcessor(object):
 
             try:
                 (cur_show, cur_season, cur_episodes, cur_quality) = cur_attempt()
-            except InvalidNameException, e:
+            except (InvalidNameException, InvalidShowException), e:
                 logger.log(u"Unable to parse, skipping: " + ex(e), logger.DEBUG)
                 continue
 
