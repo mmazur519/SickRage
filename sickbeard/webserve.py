@@ -132,7 +132,8 @@ class HTTPRedirect(Exception):
     """Exception raised when the request should be redirected."""
 
     def __init__(self, url, permanent=False, status=None):
-        self.url = urlparse.urljoin(sickbeard.WEB_ROOT, url)
+        self.web_root = ('/' + sickbeard.WEB_ROOT.lstrip('/')) if sickbeard.WEB_ROOT else ''
+        self.url = urlparse.urljoin(self.web_root, url)
         self.permanent = permanent
         self.status = status
         Exception.__init__(self, self.url, self.permanent, self.status)
@@ -2830,25 +2831,29 @@ class NewHomeAddShows(MainHandler):
             return
 
         root_dirs = sickbeard.ROOT_DIRS.split('|')
-        location = root_dirs[int(root_dirs[0]) + 1]
+        if root_dirs:
+            location = root_dirs[int(root_dirs[0]) + 1]
 
-        show_dir = ek.ek(os.path.join, location, helpers.sanitizeFileName(showName))
-        dir_exists = helpers.makeDir(show_dir)
-        if not dir_exists:
-            logger.log(u"Unable to create the folder " + show_dir + ", can't add the show", logger.ERROR)
-            return
+            show_dir = ek.ek(os.path.join, location, helpers.sanitizeFileName(showName))
+            dir_exists = helpers.makeDir(show_dir)
+            if not dir_exists:
+                logger.log(u"Unable to create the folder " + show_dir + ", can't add the show", logger.ERROR)
+                return
+            else:
+                helpers.chmodAsParent(show_dir)
+
+            sickbeard.showQueueScheduler.action.addShow(1, int(indexer_id), show_dir,
+                                                        default_status=sickbeard.STATUS_DEFAULT,
+                                                        quality=sickbeard.QUALITY_DEFAULT,
+                                                        flatten_folders=sickbeard.FLATTEN_FOLDERS_DEFAULT,
+                                                        subtitles=sickbeard.SUBTITLES_DEFAULT,
+                                                        anime=sickbeard.ANIME_DEFAULT,
+                                                        scene=sickbeard.SCENE_DEFAULT)
+
+            ui.notifications.message('Show added', 'Adding the specified show into ' + show_dir)
         else:
-            helpers.chmodAsParent(show_dir)
-
-        sickbeard.showQueueScheduler.action.addShow(1, int(indexer_id), show_dir,
-                                                    default_status=sickbeard.STATUS_DEFAULT,
-                                                    quality=sickbeard.QUALITY_DEFAULT,
-                                                    flatten_folders=sickbeard.FLATTEN_FOLDERS_DEFAULT,
-                                                    subtitles=sickbeard.SUBTITLES_DEFAULT,
-                                                    anime=sickbeard.ANIME_DEFAULT,
-                                                    scene=sickbeard.SCENE_DEFAULT)
-
-        ui.notifications.message('Show added', 'Adding the specified show into ' + show_dir)
+            logger.log(u"There was an error creating the show, no root directory setting found", logger.ERROR)
+            return
 
         # done adding show
         redirect('/home/')
@@ -3434,7 +3439,7 @@ class Home(MainHandler):
         if str(pid) != str(sickbeard.PID):
             redirect("/home/")
 
-        threading.Timer(2, sickbeard.invoke_shutdown).start()
+        sickbeard.events.put(sickbeard.events.SystemEvent.SHUTDOWN)
 
         title = "Shutting down"
         message = "SickRage is shutting down..."
@@ -3450,7 +3455,7 @@ class Home(MainHandler):
         t.submenu = HomeMenu()
 
         # restart
-        threading.Timer(5, sickbeard.invoke_restart, [False]).start()
+        sickbeard.events.put(sickbeard.events.SystemEvent.RESTART)
 
         return _munge(t)
 
@@ -3462,7 +3467,7 @@ class Home(MainHandler):
         updated = sickbeard.versionCheckScheduler.action.update()  # @UndefinedVariable
         if updated:
             # do a hard restart
-            threading.Timer(2, sickbeard.invoke_restart, [False]).start()
+            sickbeard.events.put(sickbeard.events.SystemEvent.RESTART)
 
             t = PageTemplate(headers=self.request.headers, file="restart_bare.tmpl")
             return _munge(t)

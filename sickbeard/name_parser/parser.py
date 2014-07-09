@@ -16,6 +16,7 @@
 # You should have received a copy of the GNU General Public License
 # along with SickRage.  If not, see <http://www.gnu.org/licenses/>.
 
+import time
 import re
 import datetime
 import os.path
@@ -133,6 +134,8 @@ class NameParser(object):
                 if self.showObj:
                     break
             else:
+                time.sleep(0.05)
+
                 raise InvalidShowException(
                     "Unable to parse " + name.encode(sickbeard.SYS_ENCODING, 'xmlcharrefreplace'))
 
@@ -230,7 +233,7 @@ class NameParser(object):
                 tmp_extra_info = match.group('extra_info')
 
                 # Show.S04.Special or Show.S05.Part.2.Extras is almost certainly not every episode in the season
-                if not (tmp_extra_info and cur_regex_name == 'season_only' and re.search(
+                if not (tmp_extra_info and 'season_only' in cur_regex_name and re.search(
                         r'([. _-]|^)(special|extra)s?\w*([. _-]|$)', tmp_extra_info, re.I)):
                     result.extra_info = tmp_extra_info
                     result.score += 1
@@ -250,6 +253,8 @@ class NameParser(object):
 
             result.score += 1
             matches.append(result)
+
+            time.sleep(0.05)
 
         if len(matches):
             result = max(sorted(matches, reverse=True, key=lambda x: x.which_regex), key=lambda x: x.score)

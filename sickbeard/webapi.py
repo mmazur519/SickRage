@@ -1524,7 +1524,7 @@ class CMD_SickBeardRestart(ApiCall):
 
     def run(self):
         """ restart sickbeard """
-        threading.Timer(2, sickbeard.invoke_restart, [False]).start()
+        sickbeard.events.put(sickbeard.events.SystemEvent.RESTART)
         return _responds(RESULT_SUCCESS, msg="SickRage is restarting...")
 
 
@@ -1701,7 +1701,7 @@ class CMD_SickBeardShutdown(ApiCall):
 
     def run(self):
         """ shutdown sickbeard """
-        threading.Timer(2, sickbeard.invoke_shutdown).start()
+        sickbeard.events.put(sickbeard.events.SystemEvent.SHUTDOWN)
         return _responds(RESULT_SUCCESS, msg="SickRage is shutting down...")
 
 
@@ -1758,10 +1758,12 @@ class CMD_Show(ApiCall):
             showDict["network"] = ""
         showDict["status"] = showObj.status
 
-        nextAirdate = ''
-        nextEps = showObj.nextEpisode()
-        if (len(nextEps) != 0):
-            nextAirdate = _ordinal_to_dateForm(nextEps[0].airdate.toordinal())
+        nextAirdate = showObj.nextaired
+        if nextAirdate:
+            nextAirdate = _ordinal_to_dateForm(nextAirdate)
+        else:
+            nextAirdate = ''
+
         showDict["next_ep_airdate"] = nextAirdate
 
         return _responds(RESULT_SUCCESS, showDict)
@@ -2500,10 +2502,11 @@ class CMD_Shows(ApiCall):
         """ display_is_int_multi( self.indexerid )shows in sickbeard """
         shows = {}
         for curShow in sickbeard.showList:
-            nextAirdate = ''
-            nextEps = curShow.nextEpisode()
-            if (len(nextEps) != 0):
-                nextAirdate = _ordinal_to_dateForm(nextEps[0].airdate.toordinal())
+            nextAirdate = curShow.nextaired
+            if nextAirdate:
+                nextAirdate = _ordinal_to_dateForm(nextAirdate)
+            else:
+                nextAirdate = ''
 
             if self.paused != None and bool(self.paused) != bool(curShow.paused):
                 continue
