@@ -97,9 +97,6 @@ class TVCache():
             myDB = self._getDB()
             myDB.action("DELETE FROM [" + self.providerID + "] WHERE time < ?", [int(time.mktime(curDate.timetuple()))])
 
-            # clear RSS Feed cache
-            RSSFeeds(self.providerID).clearCache()
-
     def _getRSSData(self):
 
         data = None
@@ -247,7 +244,7 @@ class TVCache():
             logger.log(u"Unable to parse the filename " + name + " into a valid episode", logger.DEBUG)
             return None
         except InvalidShowException:
-            logger.log(u"Unable to parse the filename " + name + " into a valid show", logger.WARNING)
+            logger.log(u"Unable to parse the filename " + name + " into a valid show", logger.DEBUG)
             return None
 
         if not parse_result or not parse_result.series_name:

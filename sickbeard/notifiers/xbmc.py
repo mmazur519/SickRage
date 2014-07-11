@@ -143,7 +143,7 @@ class XBMCNotifier:
                     command = '{"jsonrpc":"2.0","method":"GUI.ShowNotification","params":{"title":"%s","message":"%s", "image": "%s"},"id":1}' % (
                         title.encode("utf-8"), message.encode("utf-8"), self.sb_logo_url)
                     notifyResult = self._send_to_xbmc_json(command, curHost, username, password)
-                    if notifyResult:
+                    if getattr(notifyResult, 'result', None):
                         result += curHost + ':' + notifyResult["result"].decode(sickbeard.SYS_ENCODING)
             else:
                 if sickbeard.XBMC_ALWAYS_ON or force:
@@ -460,7 +460,7 @@ class XBMCNotifier:
             pathResponse = self._send_to_xbmc_json(pathCommand, host)
 
             path = pathResponse["result"]["tvshowdetails"]["file"]
-            logger.log(u"Received Show: " + show["label"] + " with ID: " + str(tvshowid) + " Path: " + path,
+            logger.log(u"Received Show: " + showName + " with ID: " + str(tvshowid) + " Path: " + path,
                        logger.DEBUG)
 
             if (len(path) < 1):
