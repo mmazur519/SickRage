@@ -1857,8 +1857,9 @@ class CMD_ShowAddExisting(ApiCall):
         if iqualityID or aqualityID:
             newQuality = Quality.combineQualities(iqualityID, aqualityID)
 
-        sickbeard.showQueueScheduler.action.addShow(int(self.indexer), int(self.indexerid), self.location, SKIPPED, newQuality,
-                                                    int(self.flatten_folders))  #@UndefinedVariable
+        sickbeard.showQueueScheduler.action.addShow(int(self.indexer), int(self.indexerid), self.location, SKIPPED,
+                                                    newQuality, int(self.flatten_folders))
+
         return _responds(RESULT_SUCCESS, {"name": indexerName}, indexerName + " has been queued to be added")
 
 
@@ -1872,7 +1873,9 @@ class CMD_ShowAddNew(ApiCall):
                                     "flatten_folders": {"desc": "flatten subfolders for the show"},
                                     "status": {"desc": "status of missing episodes"},
                                     "lang": {"desc": "the 2 letter lang abbreviation id"},
-                                    "subtitles": {"desc": "allow search episode subtitle"}
+                                    "subtitles": {"desc": "allow search episode subtitle"},
+                                    "anime": {"desc": "set show to anime"},
+                                    "scene": {"desc": "show searches episodes by scene numbering"}
              }
     }
 
@@ -1910,6 +1913,11 @@ class CMD_ShowAddNew(ApiCall):
         self.lang, args = self.check_params(args, kwargs, "lang", "en", False, "string", self.valid_languages.keys())
         self.subtitles, args = self.check_params(args, kwargs, "subtitles", int(sickbeard.USE_SUBTITLES), False, "int",
             [])
+        self.anime, args = self.check_params(args, kwargs, "anime", int(sickbeard.ANIME_DEFAULT), False, "int",
+            [])
+        self.scene, args = self.check_params(args, kwargs, "scene", int(sickbeard.SCENE_DEFAULT), False, "int",
+            [])
+
         # super, missing, help
         ApiCall.__init__(self, handler, args, kwargs)
 
@@ -2001,8 +2009,9 @@ class CMD_ShowAddNew(ApiCall):
                 helpers.chmodAsParent(showPath)
 
         sickbeard.showQueueScheduler.action.addShow(int(self.indexer), int(self.indexerid), showPath, newStatus, newQuality,
-                                                    int(self.flatten_folders), self.subtitles,
-                                                    self.lang)  #@UndefinedVariable
+                                                    int(self.flatten_folders), self.lang, self.subtitles, self.anime,
+                                                    self.scene)  # @UndefinedVariable
+
         return _responds(RESULT_SUCCESS, {"name": indexerName}, indexerName + " has been queued to be added")
 
 
