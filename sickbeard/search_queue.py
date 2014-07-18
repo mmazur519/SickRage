@@ -88,6 +88,7 @@ class SearchQueue(generic_queue.GenericQueue):
         else:
             logger.log(u"Not adding item, it's already in the queue", logger.DEBUG)
 
+
 class DailySearchQueueItem(generic_queue.QueueItem):
     def __init__(self, show, segment):
         generic_queue.QueueItem.__init__(self, 'Daily Search', DAILY_SEARCH)
@@ -97,26 +98,34 @@ class DailySearchQueueItem(generic_queue.QueueItem):
         self.segment = segment
 
     def run(self):
+
         generic_queue.QueueItem.run(self)
 
-        logger.log("Beginning daily search for [" + self.show.name + "]")
-        foundResults = search.searchForNeededEpisodes(self.show, self.segment)
+        try:
 
-        # reset thread back to original name
-        threading.currentThread().name = self.name
+            logger.log("Beginning daily search for [" + self.show.name + "]")
+            foundResults = search.searchForNeededEpisodes(self.show, self.segment)
 
-        if not len(foundResults):
-            logger.log(u"No needed episodes found during daily search for [" + self.show.name + "]")
-        else:
-            for result in foundResults:
-                # just use the first result for now
-                logger.log(u"Downloading " + result.name + " from " + result.provider.name)
-                search.snatchEpisode(result)
+            # reset thread back to original name
+            threading.currentThread().name = self.name
 
-                # give the CPU a break
-                time.sleep(common.cpu_presets[sickbeard.CPU_PRESET])
+            if not len(foundResults):
+                logger.log(u"No needed episodes found during daily search for [" + self.show.name + "]")
+            else:
+                for result in foundResults:
+                    # just use the first result for now
+                    logger.log(u"Downloading " + result.name + " from " + result.provider.name)
+                    search.snatchEpisode(result)
 
-        generic_queue.QueueItem.finish(self)
+                    # give the CPU a break
+                    time.sleep(common.cpu_presets[sickbeard.CPU_PRESET])
+
+            generic_queue.QueueItem.finish(self)
+        except Exception:
+            logger.log(traceback.format_exc(), logger.DEBUG)
+            threading.currentThread().name = self.name
+
+        self.finish()
 
 
 class ManualSearchQueueItem(generic_queue.QueueItem):
@@ -154,11 +163,15 @@ class ManualSearchQueueItem(generic_queue.QueueItem):
 
         except Exception:
             logger.log(traceback.format_exc(), logger.DEBUG)
+            threading.currentThread().name = self.name
+
+        self.finish()
 
     def finish(self):
         # don't let this linger if something goes wrong
-        if self.success == None:
+        if self.success is None:
             self.success = False
+
         generic_queue.QueueItem.finish(self)
 
 
@@ -174,13 +187,13 @@ class BacklogQueueItem(generic_queue.QueueItem):
     def run(self):
         generic_queue.QueueItem.run(self)
 
-        for season in self.segment:
-            sickbeard.searchBacklog.BacklogSearcher.currentSearchInfo = {
-            'title': self.show.name + " Season " + str(season)}
+        try:
+            for season in self.segment:
+                sickbeard.searchBacklog.BacklogSearcher.currentSearchInfo = {
+                'title': self.show.name + " Season " + str(season)}
 
-            wantedEps = self.segment[season]
+                wantedEps = self.segment[season]
 
-            try:
                 logger.log("Beginning backlog search for [" + self.show.name + "]")
                 searchResult = search.searchProviders(self.show, season, wantedEps, False)
 
@@ -198,9 +211,9 @@ class BacklogQueueItem(generic_queue.QueueItem):
 
                 else:
                     logger.log(u"No needed episodes found during backlog search for [" + self.show.name + "]")
-
-            except Exception:
-                logger.log(traceback.format_exc(), logger.DEBUG)
+        except Exception:
+            logger.log(traceback.format_exc(), logger.DEBUG)
+            threading.currentThread().name = self.name
 
         self.finish()
 
@@ -217,20 +230,20 @@ class FailedQueueItem(generic_queue.QueueItem):
     def run(self):
         generic_queue.QueueItem.run(self)
 
-        for season, episodes in self.segment.items():
-            for epObj in episodes:
-                logger.log(u"Marking episode as bad: [" + epObj.prettyName() + "]")
-                failed_history.markFailed(epObj)
+        try:
+            for season, episodes in self.segment.items():
+                for epObj in episodes:
+                    logger.log(u"Marking episode as bad: [" + epObj.prettyName() + "]")
+                    failed_history.markFailed(epObj)
 
-                (release, provider) = failed_history.findRelease(epObj)
-                if release:
-                    failed_history.logFailed(release)
-                    history.logFailed(epObj, release, provider)
+                    (release, provider) = failed_history.findRelease(epObj)
+                    if release:
+                        failed_history.logFailed(release)
+                        history.logFailed(epObj, release, provider)
 
-                failed_history.revertEpisode(epObj)
-                logger.log("Beginning failed download search for [" + epObj.prettyName() + "]")
+                    failed_history.revertEpisode(epObj)
+                    logger.log("Beginning failed download search for [" + epObj.prettyName() + "]")
 
-                try:
                     searchResult = search.searchProviders(self.show, season, [epObj], True)
 
                     # reset thread back to original name
@@ -247,7 +260,8 @@ class FailedQueueItem(generic_queue.QueueItem):
 
                     else:
                         logger.log(u"No valid episode found to retry for [" + epObj.prettyName() + "]")
-                except Exception, e:
-                    logger.log(traceback.format_exc(), logger.DEBUG)
+        except Exception:
+            logger.log(traceback.format_exc(), logger.DEBUG)
+            threading.currentThread().name = self.name
 
         self.finish()

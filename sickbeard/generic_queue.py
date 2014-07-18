@@ -31,14 +31,14 @@ class QueuePriorities:
 class GenericQueue(object):
     def __init__(self):
 
+        self.queueItem = None
         self.currentItem = None
+
         self.queue = []
 
         self.queue_name = "QUEUE"
 
         self.min_priority = 0
-
-        self.currentItem = None
 
         self.lock = threading.Lock()
 
@@ -58,13 +58,14 @@ class GenericQueue(object):
 
     def run(self, force=False):
 
-        # if the thread is dead then the current item should be finished
-        if self.currentItem is not None:
-            self.currentItem.finish()
-            self.currentItem = None
-
         # only start a new task if one isn't already going
-        if not self.currentItem or not self.currentItem.isAlive():
+        if self.queueItem is None or not self.queueItem.isAlive():
+
+            # if the thread is dead then the current item should be finished
+            if self.currentItem:
+                self.currentItem.finish()
+                self.currentItem = None
+
             # if there's something in the queue then run it in a thread and take it out of the queue
             if len(self.queue) > 0:
 
@@ -85,7 +86,7 @@ class GenericQueue(object):
 
                 self.queue.sort(cmp=sorter)
 
-                queueItem = self.queue[0]
+                queueItem = self.queue.pop(0)
 
                 if queueItem.priority < self.min_priority:
                     return
@@ -96,9 +97,7 @@ class GenericQueue(object):
 
                 self.currentItem = queueItem
 
-                # take it out of the queue
-                del self.queue[0]
-
+                queueItem.join()
 
 class QueueItem(threading.Thread):
     def __init__(self, name, action_id=0):
@@ -109,7 +108,6 @@ class QueueItem(threading.Thread):
         self.priority = QueuePriorities.NORMAL
         self.action_id = action_id
         self.added = None
-        self.alive = True
         self.stop = threading.Event()
 
     def run(self):
@@ -121,4 +119,3 @@ class QueueItem(threading.Thread):
         """Implementing Classes should call this"""
 
         self.inProgress = False
-        self.alive = False

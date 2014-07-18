@@ -44,7 +44,7 @@ class NameParser(object):
         self.naming_pattern = naming_pattern
 
         self.regexModes = [self.NORMAL_REGEX, self.SPORTS_REGEX, self.ANIME_REGEX]
-        if self.showObj and not (self.showObj.is_anime or self.showObj.is_sports):
+        if self.showObj and not self.showObj.is_anime and not self.showObj.is_sports:
             self.regexModes = [self.NORMAL_REGEX]
         elif self.showObj and self.showObj.is_anime:
             self.regexModes = [self.ANIME_REGEX]
@@ -111,6 +111,8 @@ class NameParser(object):
 
             self._compile_regexes(regexMode)
             for (cur_regexMode, cur_regex_name, cur_regex) in self.compiled_regexes:
+                time.sleep(0.02)
+
                 if doneSearch:
                     break
 
@@ -138,10 +140,7 @@ class NameParser(object):
                                 result.show = helpers.get_show_by_name(result.series_name, useIndexer=self.useIndexers)
 
                         if not result.show:
-                            if len(self.regexModes) > 1:
-                                break
-                            else:
-                                continue
+                            continue
 
                         result.score += 1
 
@@ -221,7 +220,7 @@ class NameParser(object):
 
                 matches.append(result)
 
-                time.sleep(0.05)
+                time.sleep(0.02)
 
         if len(matches):
             # pick best match with highest score based on placement

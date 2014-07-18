@@ -354,9 +354,6 @@ class QueueItemAdd(ShowQueueItem):
                 logger.ERROR)
             logger.log(traceback.format_exc(), logger.DEBUG)
 
-        # before we parse local files lets update exceptions
-        sickbeard.scene_exceptions.retrieve_exceptions()
-
         # update internal name cache
         name_cache.buildNameCache()
 
@@ -426,8 +423,8 @@ class QueueItemRefresh(ShowQueueItem):
 
         self.show.refreshDir()
         self.show.writeMetadata()
-        if self.force:
-            self.show.updateMetadata()
+        #if self.force:
+        #    self.show.updateMetadata()
         self.show.populateCache()
 
         # Load XEM data to DB for show
