@@ -261,13 +261,12 @@ def download_file(url, filename):
     return True
 
 
-def findCertainShow(showList, indexerid=None):
+def findCertainShow(showList, indexerid):
     if not showList:
         return None
 
+    results = []
     if indexerid:
-        results = filter(lambda x: int(x.indexerid) == int(indexerid), showList)
-    else:
         results = filter(lambda x: int(x.indexerid) == int(indexerid), showList)
 
     if len(results) == 0:
@@ -1069,10 +1068,10 @@ def _check_against_names(nameInQuestion, show, season=-1):
     return False
 
 
-def get_show_by_name(name, useIndexer=False):
+def get_show(name, indexer_id=0, useIndexer=False):
     try:
         # check cache for show
-        showObj = sickbeard.name_cache.retrieveShowFromCache(name)
+        showObj = sickbeard.name_cache.retrieveShowFromCache(name, indexer_id=indexer_id)
         if showObj:
             return showObj
 

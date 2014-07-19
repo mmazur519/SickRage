@@ -103,7 +103,6 @@ class NameParser(object):
             return
 
         matches = []
-        doneSearch = False
         bestResult = None
 
         for regexMode in self.regexModes:
@@ -129,18 +128,29 @@ class NameParser(object):
                     result.series_name = match.group('series_name')
                     if result.series_name:
                         result.series_name = self.clean_series_name(result.series_name)
-
-                    if not result.show:
-                        if self.showObj and self.showObj.name.lower() == result.series_name.lower():
-                            result.show = self.showObj
-                        else:
-                            if not self.naming_pattern:
-                                result.show = helpers.get_show_by_name(result.series_name, useIndexer=self.useIndexers)
-
-                        if not result.show:
-                            continue
-
                         result.score += 1
+
+                # get show object
+                if not result.show and not self.naming_pattern:
+                    result.show = helpers.get_show(result.series_name, useIndexer=self.useIndexers)
+                elif self.showObj and self.naming_pattern:
+                    result.show = self.showObj
+
+                # confirm result show object variables
+                if result.show:
+                    # confirm passed in show object indexer id matches result show object indexer id
+                    if self.showObj and self.showObj.indexerid != result.show.indexerid:
+                        break
+
+                    # confirm we are using correct regex mode
+                    if regexMode == self.NORMAL_REGEX and not (result.show.is_anime or result.show.is_sports):
+                        result.score += 1
+                    elif regexMode == self.SPORTS_REGEX and result.show.is_sports:
+                        result.score += 1
+                    elif regexMode == self.ANIME_REGEX and result.show.is_anime:
+                        result.score += 1
+                    else:
+                        break
 
                 if 'season_num' in named_groups:
                     tmp_season = int(match.group('season_num'))
@@ -214,17 +224,7 @@ class NameParser(object):
                     result.release_group = match.group('release_group')
                     result.score += 1
 
-                if result.show:
-                    if regexMode == self.NORMAL_REGEX and not (result.show.is_anime or result.show.is_sports):
-                        result.score += 1
-                    elif regexMode == self.SPORTS_REGEX and result.show.is_sports:
-                        result.score += 1
-                    elif regexMode == self.ANIME_REGEX and result.show.is_anime:
-                        result.score += 1
-
                 matches.append(result)
-
-                time.sleep(0.02)
 
         if len(matches):
             # pick best match with highest score based on placement
