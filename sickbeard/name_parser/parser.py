@@ -29,6 +29,7 @@ import sickbeard
 from sickbeard import logger, helpers, scene_numbering, common, exceptions, scene_exceptions
 from dateutil import parser
 
+
 class NameParser(object):
     NORMAL_REGEX = 0
     SPORTS_REGEX = 1
@@ -106,15 +107,11 @@ class NameParser(object):
         bestResult = None
 
         for regexMode in self.regexModes:
-            if doneSearch:
-                break
 
             self._compile_regexes(regexMode)
+
             for (cur_regexMode, cur_regex_name, cur_regex) in self.compiled_regexes:
                 time.sleep(0.02)
-
-                if doneSearch:
-                    break
 
                 match = cur_regex.match(name)
 
@@ -133,6 +130,7 @@ class NameParser(object):
                     if result.series_name:
                         result.series_name = self.clean_series_name(result.series_name)
 
+                    if not result.show:
                         if self.showObj and self.showObj.name.lower() == result.series_name.lower():
                             result.show = self.showObj
                         else:
@@ -216,7 +214,13 @@ class NameParser(object):
                     result.release_group = match.group('release_group')
                     result.score += 1
 
-                doneSearch = True if result.show else False
+                if result.show:
+                    if regexMode == self.NORMAL_REGEX and not (result.show.is_anime or result.show.is_sports):
+                        result.score += 1
+                    elif regexMode == self.SPORTS_REGEX and result.show.is_sports:
+                        result.score += 1
+                    elif regexMode == self.ANIME_REGEX and result.show.is_anime:
+                        result.score += 1
 
                 matches.append(result)
 
@@ -598,6 +602,7 @@ class ParseResult(object):
         if len(self.ab_episode_numbers):
             return True
         return False
+
 
 class NameParserCache(object):
     _previous_parsed = {}
