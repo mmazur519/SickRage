@@ -1,5 +1,5 @@
-# Author: seedboy
-# URL: https://github.com/seedboy
+# Author: Idan Gutman
+# URL: http://code.google.com/p/sickbeard/
 #
 # This file is part of SickRage.
 #
@@ -11,18 +11,16 @@
 # SickRage is distributed in the hope that it will be useful,
 # but WITHOUT ANY WARRANTY; without even the implied warranty of
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-#  GNU General Public License for more details.
+# GNU General Public License for more details.
 #
 # You should have received a copy of the GNU General Public License
 # along with SickRage.  If not, see <http://www.gnu.org/licenses/>.
 
-import traceback
-import urllib2
-import urllib
-import time
 import re
+import traceback
 import datetime
 import urlparse
+import time
 import sickbeard
 import generic
 from sickbeard.common import Quality, cpu_presets
@@ -38,21 +36,21 @@ from sickbeard import clients
 from lib import requests
 from lib.requests import exceptions
 from bs4 import BeautifulSoup
+from lib.unidecode import unidecode
 from sickbeard.helpers import sanitizeSceneName
 
 
-class NextGenProvider(generic.TorrentProvider):
-    urls = {'base_url': 'https://nxtgn.org/',
-            'search': 'https://nxtgn.org/browse.php?search=%s&cat=0&incldead=0&modes=%s',
-            'login_page': 'https://nxtgn.org/login.php',
-            'detail': 'https://nxtgn.org/details.php?id=%s',
-            'download': 'https://nxtgn.org/download.php?id=%s',
-            'takelogin': 'https://nxtgn.org/takelogin.php?csrf=',
+class BitSoupProvider(generic.TorrentProvider):
+    urls = {'base_url': 'https://www.bitsoup.me',
+            'login': 'https://www.bitsoup.me/takelogin.php',
+            'detail': 'https://www.bitsoup.me/details.php?id=%s',
+            'search': 'https://www.bitsoup.me/browse.php?search=%s%s',
+            'download': 'https://bitsoup.me/%s',
     }
 
     def __init__(self):
 
-        generic.TorrentProvider.__init__(self, "NextGen")
+        generic.TorrentProvider.__init__(self, "BitSoup")
 
         self.supportsBacklog = True
 
@@ -60,81 +58,46 @@ class NextGenProvider(generic.TorrentProvider):
         self.username = None
         self.password = None
         self.ratio = None
+        self.minseed = None
+        self.minleech = None
 
-        self.cache = NextGenCache(self)
+        self.cache = BitSoupCache(self)
 
         self.url = self.urls['base_url']
 
-        self.categories = '&c7=1&c24=1&c17=1&c22=1&c42=1&c46=1&c26=1&c28=1&c43=1&c4=1&c31=1&c45=1&c33=1'
-
-        self.last_login_check = None
-
-        self.login_opener = None
+        self.categories = "&c42=1&c45=1&c49=1&c7=1"
 
     def isEnabled(self):
         return self.enabled
 
     def imageName(self):
-        return 'nextgen.png'
+        return 'bitsoup.png'
 
     def getQuality(self, item, anime=False):
 
         quality = Quality.sceneQuality(item[0], anime)
         return quality
 
-    def getLoginParams(self):
-        return {
-            'username': self.username,
-            'password': self.password,
-        }
-
-    def loginSuccess(self, output):
-        if "<title>NextGen - Login</title>" in output:
-            return False
-        else:
-            return True
-
     def _doLogin(self):
 
-        now = time.time()
+        login_params = {'username': self.username,
+                        'password': self.password,
+                        'ssl': 'yes'
+        }
 
-        if self.login_opener and self.last_login_check < (now - 3600):
-            try:
-                output = self.login_opener.open(self.urls['test'])
-                if self.loginSuccess(output):
-                    self.last_login_check = now
-                    return True
-                else:
-                    self.login_opener = None
-            except:
-                self.login_opener = None
-
-        if self.login_opener:
-            return True
+        self.session = requests.Session()
 
         try:
-            login_params = self.getLoginParams()
-            self.session = requests.Session()
-            self.session.headers.update(
-                {'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.8; rv:24.0) Gecko/20130519 Firefox/24.0)'})
-            data = self.session.get(self.urls['login_page'], verify=False)
-            bs = BeautifulSoup(data.content.decode('iso-8859-1'))
-            csrfraw = bs.find('form', attrs={'id': 'login'})['action']
-            output = self.session.post(self.urls['base_url'] + csrfraw, data=login_params)
+            response = self.session.post(self.urls['login'], data=login_params, timeout=30)
+        except (requests.exceptions.ConnectionError, requests.exceptions.HTTPError), e:
+            logger.log(u'Unable to connect to ' + self.name + ' provider: ' + ex(e), logger.ERROR)
+            return False
 
-            if self.loginSuccess(output):
-                self.last_login_check = now
-                self.login_opener = self.session
-                return True
+        if re.search('Username or password incorrect', response.text):
+            logger.log(u'Invalid username or password for ' + self.name + ' Check your settings', logger.ERROR)
+            return False
 
-            error = 'unknown'
-        except:
-            error = traceback.format_exc()
-            self.login_opener = None
-
-        self.login_opener = None
-        logger.log(u'Failed to login:' + str(error), logger.ERROR)
-        return False
+        return True
 
     def _get_season_search_strings(self, ep_obj):
 
@@ -193,74 +156,66 @@ class NextGenProvider(generic.TorrentProvider):
             return []
 
         for mode in search_params.keys():
-
             for search_string in search_params[mode]:
 
+                if isinstance(search_string, unicode):
+                    search_string = unidecode(search_string)
+
                 searchURL = self.urls['search'] % (search_string, self.categories)
-                logger.log(u"" + self.name + " search page URL: " + searchURL, logger.DEBUG)
+
+                logger.log(u"Search string: " + searchURL, logger.DEBUG)
 
                 data = self.getURL(searchURL)
+                if not data:
+                    continue
+                
+                try:
+                    html = BeautifulSoup(data, "html.parser")
+                    
+                    torrent_table = html.find('table', attrs={'class': 'koptekst'})
+                    torrent_rows = torrent_table.find_all('tr') if torrent_table else []
+                    
+                    #Continue only if one Release is found
+                    if len(torrent_rows) < 2:
+                         logger.log(u"The Data returned from " + self.name + " do not contains any torrent",
+                             logger.DEBUG)
+                         continue
 
-                if data:
+                    for result in torrent_rows[1:]:
+                        cells = result.find_all('td')
 
-                    try:
-                        html = BeautifulSoup(data.decode('iso-8859-1'), features=["html5lib", "permissive"])
-                        resultsTable = html.find('div', attrs={'id': 'torrent-table-wrapper'})
-
-                        if not resultsTable:
-                            logger.log(u"The Data returned from " + self.name + " do not contains any torrent",
-                                       logger.DEBUG)
+                        link = cells[1].find('a')
+                        download_url = self.urls['download'] % cells[3].find('a')['href'] 
+                        
+                        id = link['href']
+                        id = id.replace('details.php?id=','')
+                        id = id.replace('&hit=1', '')
+                        
+                        try:
+                            title = link.getText()
+                            id = int(id)
+                            seeders = int(cells[9].getText())
+                            leechers = int(cells[10].getText())
+                        except (AttributeError, TypeError):
                             continue
 
-                        # Collecting entries
-                        entries_std = html.find_all('div', attrs={'id': 'torrent-std'})
-                        entries_sticky = html.find_all('div', attrs={'id': 'torrent-sticky'})
-
-                        entries = entries_std + entries_sticky
-
-                        #Xirg STANDARD TORRENTS
-                        #Continue only if one Release is found
-                        if len(entries) > 0:
-
-                            for result in entries:
-
-                                try:
-                                    torrentName = \
-                                    ((result.find('div', attrs={'id': 'torrent-udgivelse2-users'})).find('a'))['title']
-                                    torrentId = (
-                                    ((result.find('div', attrs={'id': 'torrent-download'})).find('a'))['href']).replace(
-                                        'download.php?id=', '')
-                                    torrent_name = str(torrentName)
-                                    torrent_download_url = (self.urls['download'] % torrentId).encode('utf8')
-                                    torrent_details_url = (self.urls['detail'] % torrentId).encode('utf8')
-                                    #torrent_seeders = int(result.find('div', attrs = {'id' : 'torrent-seeders'}).find('a')['class'][0])
-                                    ## Not used, perhaps in the future ##
-                                    #torrent_id = int(torrent['href'].replace('/details.php?id=', ''))
-                                    #torrent_leechers = int(result.find('td', attrs = {'class' : 'ac t_leechers'}).string)
-                                except (AttributeError, TypeError):
-                                    continue
-
-                                # Filter unseeded torrent and torrents with no name/url
-                                #if mode != 'RSS' and torrent_seeders == 0:
-                                #    continue
-
-                                if not torrent_name or not torrent_download_url:
-                                    continue
-
-                                item = torrent_name, torrent_download_url
-                                logger.log(u"Found result: " + torrent_name + " (" + torrent_details_url + ")",
-                                           logger.DEBUG)
-                                items[mode].append(item)
-
-                        else:
-                            logger.log(u"The Data returned from " + self.name + " do not contains any torrent",
-                                       logger.WARNING)
+                        #Filter unseeded torrent
+                        if mode != 'RSS' and (seeders < self.minseed or leechers < self.minleech):
                             continue
 
+                        if not title or not download_url:
+                            continue
 
-                    except Exception, e:
-                        logger.log(u"Failed parsing " + self.name + " Traceback: " + traceback.format_exc(),
-                                   logger.ERROR)
+                        item = title, download_url, id, seeders, leechers
+                        logger.log(u"Found result: " + title + "(" + searchURL + ")", logger.DEBUG)
+
+                        items[mode].append(item)
+
+                except Exception, e:
+                    logger.log(u"Failed parsing " + self.name + " Traceback: " + traceback.format_exc(), logger.ERROR)
+
+            #For each search mode sort all the items by seeders
+            items[mode].sort(key=lambda tup: tup[3], reverse=True)
 
             results += items[mode]
 
@@ -268,16 +223,12 @@ class NextGenProvider(generic.TorrentProvider):
 
     def _get_title_and_url(self, item):
 
-        title, url = item
-
-        if title:
-            title = u'' + title
-            title = title.replace(' ', '.')
+        title, url, id, seeders, leechers = item
 
         if url:
             url = str(url).replace('&amp;', '&')
 
-        return title, url
+        return (title, url)
 
     def getURL(self, url, post_data=None, headers=None, json=False):
 
@@ -325,6 +276,7 @@ class NextGenProvider(generic.TorrentProvider):
             self.show = helpers.findCertainShow(sickbeard.showList, int(sqlshow["showid"]))
             if self.show:
                 curEp = self.show.getEpisode(int(sqlshow["season"]), int(sqlshow["episode"]))
+
                 searchString = self._get_episode_search_strings(curEp, add_string='PROPER|REPACK')
 
                 for item in self._doSearch(searchString[0]):
@@ -337,17 +289,18 @@ class NextGenProvider(generic.TorrentProvider):
         return self.ratio
 
 
-class NextGenCache(tvcache.TVCache):
+class BitSoupCache(tvcache.TVCache):
     def __init__(self, provider):
 
         tvcache.TVCache.__init__(self, provider)
 
-        # Only poll NextGen every 10 minutes max
-        self.minTime = 10
+        # only poll TorrentBytes every 20 minutes max
+        self.minTime = 20
 
     def updateCache(self):
 
         # delete anything older then 7 days
+        logger.log(u"Clearing " + self.provider.name + " cache")
         self._clearCache()
 
         if not self.shouldUpdate():
@@ -369,8 +322,6 @@ class NextGenCache(tvcache.TVCache):
             if ci is not None:
                 cl.append(ci)
 
-
-
         if len(cl) > 0:
             myDB = self._getDB()
             myDB.mass_action(cl)
@@ -383,9 +334,9 @@ class NextGenCache(tvcache.TVCache):
         if not title or not url:
             return None
 
-        logger.log(u"Attempting to cache item:[" + title +"]", logger.DEBUG)
+        logger.log(u"Attempting to cache item:[" + title + "]", logger.DEBUG)
 
         return self._addCacheEntry(title, url)
 
 
-provider = NextGenProvider()
+provider = BitSoupProvider()
