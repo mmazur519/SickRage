@@ -19,7 +19,6 @@
 
 from __future__ import with_statement
 
-import time
 import sys
 import os
 import traceback
@@ -30,7 +29,7 @@ import urlparse
 
 import sickbeard
 import generic
-from sickbeard.common import Quality, cpu_presets
+from sickbeard.common import Quality
 from sickbeard.name_parser.parser import NameParser, InvalidNameException, InvalidShowException
 from sickbeard import logger
 from sickbeard import tvcache
@@ -122,6 +121,9 @@ class KATProvider(generic.TorrentProvider):
         try:
             soup = BeautifulSoup(data, features=["html5lib", "permissive"])
             file_table = soup.find('table', attrs={'class': 'torrentFileList'})
+
+            # cleanup memory
+            soup.clear(True)
 
             if not file_table:
                 return None
@@ -253,6 +255,8 @@ class KATProvider(generic.TorrentProvider):
                     torrent_table = soup.find('table', attrs={'class': 'data'})
                     torrent_rows = torrent_table.find_all('tr') if torrent_table else []
 
+                    soup.clear(True)
+
                     #Continue only if one Release is found
                     if len(torrent_rows) < 2:
                         logger.log(u"The data returned from " + self.name + " does not contain any torrents",
@@ -260,7 +264,6 @@ class KATProvider(generic.TorrentProvider):
                         continue
 
                     for tr in torrent_rows[1:]:
-
                         try:
                             link = urlparse.urljoin(self.url,
                                                     (tr.find('div', {'class': 'torrentname'}).find_all('a')[1])['href'])
@@ -284,7 +287,7 @@ class KATProvider(generic.TorrentProvider):
                                 logger.DEBUG)
                             continue
 
-                        #Check number video files = episode in season and find the real Quality for full season torrent analyzing files in torrent 
+                        #Check number video files = episode in season and find the real Quality for full season torrent analyzing files in torrent
                         if mode == 'Season' and search_mode == 'sponly':
                             ep_number = int(epcount / len(set(allPossibleShowNames(self.show))))
                             title = self._find_season_quality(title, link, ep_number)

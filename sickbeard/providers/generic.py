@@ -22,10 +22,7 @@ from __future__ import with_statement
 import datetime
 import os
 import re
-import urllib
-import urlparse
-import time
-
+import itertools
 import sickbeard
 
 from lib import requests
@@ -275,8 +272,13 @@ class GenericProvider:
                 if quality == Quality.UNKNOWN:
                     itemsUnknown += item
                 else:
-                    items[quality] = item
-            itemList = [items.pop(k) for k in sorted(items, reverse=True)] + itemsUnknown
+                    if quality not in items:
+                        items[quality] = [item]
+                    else:
+                        items[quality].append(item)
+
+            itemList = list(itertools.chain(*[v for (k, v) in sorted(items.items(), reverse=True)]))
+            itemList += itemsUnknown if itemsUnknown else []
 
         # filter results
         for item in itemList:
@@ -297,6 +299,9 @@ class GenericProvider:
             quality = parse_result.quality
             release_group = parse_result.release_group
 
+            actual_season = None
+            actual_episodes = None
+
             if not (showObj.air_by_date or showObj.sports):
                 if search_mode == 'sponly' and len(parse_result.episode_numbers):
                     logger.log(
@@ -305,13 +310,16 @@ class GenericProvider:
                     continue
 
                 if not len(parse_result.episode_numbers) and (
-                                parse_result.season_number != None and parse_result.season_number != season) or (
-                                parse_result.season_number == None and season != 1):
-                    logger.log(u"The result " + title + " doesn't seem to be a valid season for season " + str(season) + ", ignoring", logger.DEBUG)
+                            parse_result.season_number and parse_result.season_number != season) or (
+                            not parse_result.season_number and season != 1):
+                    logger.log(u"The result " + title + " doesn't seem to be a valid season that we want, ignoring",
+                               logger.DEBUG)
                     continue
                 elif len(parse_result.episode_numbers) and (
-                                parse_result.season_number != season or parse_result.episode_numbers[0] not in episodes):
-                    logger.log(u"Episode " + title + " isn't " + str(season) + "x" + str(parse_result.episode_numbers[0]) + ", skipping it", logger.DEBUG)
+                                parse_result.season_number != season or not [ep for ep in episodes if
+                                                                             ep.scene_episode in parse_result.episode_numbers]):
+                    logger.log(u"The result " + title + " doesn't seem to be a valid episode that we want, ignoring",
+                               logger.DEBUG)
                     continue
 
                 # we just use the existing info for normal searches
@@ -324,7 +332,7 @@ class GenericProvider:
                         logger.DEBUG)
                     continue
 
-                airdate = parse_result.air_date.toordinal() if parse_result.air_date else parse_result.is_sports_air_date.toordinal()
+                airdate = parse_result.air_date.toordinal() if parse_result.air_date else parse_result.sports_air_date.toordinal()
                 myDB = db.DBConnection()
                 sql_results = myDB.select(
                     "SELECT season, episode FROM tv_episodes WHERE showid = ? AND airdate = ?",
@@ -383,10 +391,10 @@ class GenericProvider:
             if not result:
                 continue
 
-            if epNum in results:
-                results[epNum].append(result)
-            else:
+            if epNum not in results:
                 results[epNum] = [result]
+            else:
+                results[epNum].append(result)
 
         return results
 

@@ -45,6 +45,9 @@ class TorrentBasicTests(test.SickbeardTestDBCase):
         torrent_table = soup.find('table', attrs={'class': 'data'})
         torrent_rows = torrent_table.find_all('tr') if torrent_table else []
 
+        # cleanup memory
+        soup.clear(True)
+
         #Continue only if one Release is found
         if len(torrent_rows) < 2:
             print(u"The data returned does not contain any torrents")

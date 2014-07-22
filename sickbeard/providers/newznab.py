@@ -114,7 +114,6 @@ class NewznabProvider(generic.NZBProvider):
         return to_return
 
     def _get_episode_search_strings(self, ep_obj, add_string=''):
-
         to_return = []
         params = {}
 

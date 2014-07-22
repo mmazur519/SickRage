@@ -138,8 +138,7 @@ class TVCache():
         return RSSFeeds(self.providerID).getFeed(url, post_data, request_headers)
 
     def _translateTitle(self, title):
-        title = u'' + title
-        return title.replace(' ', '.')
+        return u'' + title.replace(' ', '.')
 
 
     def _translateLinkURL(self, url):
@@ -254,7 +253,7 @@ class TVCache():
 
         season = episodes = None
         if parse_result.is_air_by_date or parse_result.is_sports:
-            airdate = parse_result.air_date.toordinal() if parse_result.air_date else parse_result.is_sports_air_date.toordinal()
+            airdate = parse_result.air_date.toordinal() if parse_result.air_date else parse_result.sports_air_date.toordinal()
 
             myDB = db.DBConnection()
             sql_results = myDB.select(
@@ -345,32 +344,29 @@ class TVCache():
                 if not showObj.wantEpisode(curSeason, curEp, curQuality, manualSearch):
                     logger.log(u"Skipping " + curResult["name"] + " because we don't want an episode that's " +
                                Quality.qualityStrings[curQuality], logger.DEBUG)
+                    continue
+
+                # build a result object
+                title = curResult["name"]
+                url = curResult["url"]
+
+                logger.log(u"Found result " + title + " at " + url)
+
+                result = self.provider.getResult([epObj])
+                result.show = showObj
+                result.url = url
+                result.name = title
+                result.quality = curQuality
+                result.release_group = curReleaseGroup
+                result.content = self.provider.getURL(url) \
+                    if self.provider.providerType == sickbeard.providers.generic.GenericProvider.TORRENT \
+                       and not url.startswith('magnet') else None
+
+                # add it to the list
+                if epObj not in neededEps:
+                    neededEps[epObj] = [result]
                 else:
-
-                    if not epObj:
-                        epObj = showObj.getEpisode(curSeason, curEp)
-
-                    # build a result object
-                    title = curResult["name"]
-                    url = curResult["url"]
-
-                    logger.log(u"Found result " + title + " at " + url)
-
-                    result = self.provider.getResult([epObj])
-                    result.show = showObj
-                    result.url = url
-                    result.name = title
-                    result.quality = curQuality
-                    result.release_group = curReleaseGroup
-                    result.content = self.provider.getURL(url) \
-                        if self.provider.providerType == sickbeard.providers.generic.GenericProvider.TORRENT \
-                           and not url.startswith('magnet') else None
-
-                    # add it to the list
-                    if epObj not in neededEps:
-                        neededEps[epObj] = [result]
-                    else:
-                        neededEps[epObj].append(result)
+                    neededEps[epObj].append(result)
 
         # datetime stamp this search so cache gets cleared
         self.setLastSearch()

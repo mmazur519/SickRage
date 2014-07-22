@@ -71,13 +71,13 @@ class PostProcessor(object):
         self.file_path = file_path
 
         # file name only
-        self.file_name = helpers.remove_extension(ek.ek(os.path.basename, file_path))
+        self.file_name = ek.ek(os.path.basename, file_path)
 
         # the name of the folder only
-        self.folder_name = helpers.remove_extension(ek.ek(os.path.basename, self.folder_path))
+        self.folder_name = ek.ek(os.path.basename, self.folder_path)
 
         # name of the NZB that resulted in this folder
-        self.nzb_name = helpers.remove_extension(nzb_name)
+        self.nzb_name = nzb_name
 
         self.process_method = process_method if process_method else sickbeard.PROCESS_METHOD
 
@@ -483,7 +483,7 @@ class PostProcessor(object):
             episodes = [parse_result.air_date]
         elif parse_result.is_sports:
             season = -1
-            episodes = [parse_result.is_sports_air_date]
+            episodes = [parse_result.sports_air_date]
         else:
             season = parse_result.season_number
             episodes = parse_result.episode_numbers
@@ -943,17 +943,16 @@ class PostProcessor(object):
 
                 sql_l.append(cur_ep.get_sql())
 
-                # Just want to keep this consistent for failed handling right now
-                releaseName = show_name_helpers.determineReleaseName(self.folder_path, self.nzb_name)
-                if releaseName is not None:
-                    failed_history.logSuccess(releaseName)
-                else:
-                    self._log(u"Couldn't find release in snatch history", logger.WARNING)
-
         if len(sql_l) > 0:
             myDB = db.DBConnection()
             myDB.mass_action(sql_l)
 
+        # Just want to keep this consistent for failed handling right now
+        releaseName = show_name_helpers.determineReleaseName(self.folder_path, self.nzb_name)
+        if releaseName is not None:
+            failed_history.logSuccess(releaseName)
+        else:
+            self._log(u"Couldn't find release in snatch history", logger.WARNING)
 
         # find the destination folder
         try:
@@ -1007,7 +1006,7 @@ class PostProcessor(object):
 
         # download subtitles
         if sickbeard.USE_SUBTITLES and ep_obj.show.subtitles:
-            for curEp in [ep_obj]:
+            for cur_ep in [ep_obj] + ep_obj.relatedEps:
                 with cur_ep.lock:
                     cur_ep.location = ek.ek(os.path.join, dest_path, new_file_name)
                     cur_ep.downloadSubtitles(force=True)
@@ -1017,21 +1016,20 @@ class PostProcessor(object):
         for cur_ep in [ep_obj] + ep_obj.relatedEps:
             with cur_ep.lock:
                 cur_ep.location = ek.ek(os.path.join, dest_path, new_file_name)
-
                 sql_l.append(cur_ep.get_sql())
-
-                # set file modify stamp to show airdate
-                if sickbeard.AIRDATE_EPISODES:
-                    ep_obj.show.airdateModifyStamp(cur_ep)
-
-        # generate nfo/tbn
-        ep_obj.createMetaFiles()
-        sql_l.append(ep_obj.get_sql())
 
         if len(sql_l) > 0:
             myDB = db.DBConnection()
             myDB.mass_action(sql_l)
 
+        # set file modify stamp to show airdate
+        if sickbeard.AIRDATE_EPISODES:
+            for cur_ep in [ep_obj] + ep_obj.relatedEps:
+                with cur_ep.lock:
+                    cur_ep.airdateModifyStamp()
+
+        # generate nfo/tbn
+        ep_obj.createMetaFiles()
 
         # log it to history
         history.logDownload(ep_obj, self.file_path, new_ep_quality, self.release_group)

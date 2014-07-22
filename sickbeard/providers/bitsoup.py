@@ -20,7 +20,6 @@ import re
 import traceback
 import datetime
 import urlparse
-import time
 import sickbeard
 import generic
 from sickbeard.common import Quality, cpu_presets
@@ -30,7 +29,6 @@ from sickbeard import db
 from sickbeard import classes
 from sickbeard import helpers
 from sickbeard import show_name_helpers
-from sickbeard.common import Overview
 from sickbeard.exceptions import ex
 from sickbeard import clients
 from lib import requests
@@ -174,7 +172,9 @@ class BitSoupProvider(generic.TorrentProvider):
                     
                     torrent_table = html.find('table', attrs={'class': 'koptekst'})
                     torrent_rows = torrent_table.find_all('tr') if torrent_table else []
-                    
+
+                    html.clear(True)
+
                     #Continue only if one Release is found
                     if len(torrent_rows) < 2:
                          logger.log(u"The Data returned from " + self.name + " do not contains any torrent",
