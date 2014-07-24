@@ -1509,6 +1509,7 @@ class ConfigGeneral(MainHandler):
         else:
             ui.notifications.message('Configuration Saved', ek.ek(os.path.join, sickbeard.CONFIG_FILE))
 
+        redirect("/config/general/")
 
 class ConfigBackupRestore(MainHandler):
     def index(self, *args, **kwargs):
@@ -1636,6 +1637,7 @@ class ConfigSearch(MainHandler):
         else:
             ui.notifications.message('Configuration Saved', ek.ek(os.path.join, sickbeard.CONFIG_FILE))
 
+        redirect("/config/search/")
 
 class ConfigPostProcessing(MainHandler):
     def index(self, *args, **kwargs):
@@ -1741,6 +1743,7 @@ class ConfigPostProcessing(MainHandler):
         else:
             ui.notifications.message('Configuration Saved', ek.ek(os.path.join, sickbeard.CONFIG_FILE))
 
+        redirect("/config/postProcessing/")
 
     def testNaming(self, pattern=None, multi=None, abd=False, sports=False, anime_type=None):
 
@@ -2179,6 +2182,7 @@ class ConfigProviders(MainHandler):
         else:
             ui.notifications.message('Configuration Saved', ek.ek(os.path.join, sickbeard.CONFIG_FILE))
 
+        redirect("/config/providers/")
 
 class ConfigNotifications(MainHandler):
     def index(self, *args, **kwargs):
@@ -2213,7 +2217,7 @@ class ConfigNotifications(MainHandler):
                           use_nmjv2=None, nmjv2_host=None, nmjv2_dbloc=None, nmjv2_database=None,
                           use_trakt=None, trakt_username=None, trakt_password=None, trakt_api=None,
                           trakt_remove_watchlist=None, trakt_use_watchlist=None, trakt_method_add=None,
-                          trakt_start_paused=None, trakt_use_recommended=None, trakt_sync=None,
+                          trakt_start_paused=None, trakt_use_recommended=None, trakt_sync=None, trakt_default_indexer=None,
                           use_synologynotifier=None, synologynotifier_notify_onsnatch=None,
                           synologynotifier_notify_ondownload=None, synologynotifier_notify_onsubtitledownload=None,
                           use_pytivo=None, pytivo_notify_onsnatch=None, pytivo_notify_ondownload=None,
@@ -2326,6 +2330,7 @@ class ConfigNotifications(MainHandler):
         sickbeard.TRAKT_START_PAUSED = config.checkbox_to_value(trakt_start_paused)
         sickbeard.TRAKT_USE_RECOMMENDED = config.checkbox_to_value(trakt_use_recommended)
         sickbeard.TRAKT_SYNC = config.checkbox_to_value(trakt_sync)
+        sickbeard.TRAKT_DEFAULT_INDEXER = int(trakt_default_indexer)
 
         if sickbeard.USE_TRAKT:
             sickbeard.traktCheckerScheduler.silent = False
@@ -2383,6 +2388,7 @@ class ConfigNotifications(MainHandler):
         else:
             ui.notifications.message('Configuration Saved', ek.ek(os.path.join, sickbeard.CONFIG_FILE))
 
+        redirect("/config/notifications/")
 
 class ConfigSubtitles(MainHandler):
     def index(self, *args, **kwargs):
@@ -2439,6 +2445,7 @@ class ConfigSubtitles(MainHandler):
         else:
             ui.notifications.message('Configuration Saved', ek.ek(os.path.join, sickbeard.CONFIG_FILE))
 
+        redirect("/config/subtitles/")
 
 class ConfigAnime(MainHandler):
     def index(self, *args, **kwargs):
@@ -2484,6 +2491,7 @@ class ConfigAnime(MainHandler):
         else:
             ui.notifications.message('Configuration Saved', ek.ek(os.path.join, sickbeard.CONFIG_FILE))
 
+        redirect("/config/anime/")
 
 class Config(MainHandler):
     def index(self, *args, **kwargs):
@@ -2692,18 +2700,17 @@ class NewHomeAddShows(MainHandler):
                 indexer_id = show_name = indexer = None
                 for cur_provider in sickbeard.metadata_provider_dict.values():
                     (indexer_id, show_name, indexer) = cur_provider.retrieveShowMetadata(cur_path)
-                    if show_name: break
 
-                # default to TVDB if indexer was not detected
-                if show_name and not (indexer and indexer_id):
-                    (sn, idx, id) = helpers.searchIndexerForShowID(show_name, indexer, indexer_id)
+                    # default to TVDB if indexer was not detected
+                    if show_name and not (indexer or indexer_id):
+                        (sn, idx, id) = helpers.searchIndexerForShowID(show_name, indexer, indexer_id)
 
-                    # set indexer and indexer_id from found info
-                    if indexer is None and idx:
-                        indexer = idx
+                        # set indexer and indexer_id from found info
+                        if not indexer and idx:
+                            indexer = idx
 
-                    if indexer_id is None and id:
-                        indexer_id = id
+                        if not indexer_id and id:
+                            indexer_id = id
 
                 cur_dir['existing_info'] = (indexer_id, show_name, indexer)
 

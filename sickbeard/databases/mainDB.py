@@ -27,7 +27,7 @@ from sickbeard import encodingKludge as ek
 from sickbeard.name_parser.parser import NameParser, InvalidNameException, InvalidShowException
 
 MIN_DB_VERSION = 9  # oldest db version we support migrating from
-MAX_DB_VERSION = 38
+MAX_DB_VERSION = 39
 
 class MainSanityCheck(db.DBSanityCheck):
     def check(self):
@@ -886,3 +886,18 @@ class AddSceneToTvShows(AddXemRefresh):
 
         self.incDBVersion()
 
+class AddIndexerMapping(AddSceneToTvShows):
+    def test(self):
+        return self.checkDBVersion() >= 39
+
+    def execute(self):
+        backupDatabase(39)
+
+        if self.hasTable("indexer_mapping"):
+            self.connection.action("DROP TABLE indexer_mapping")
+
+        logger.log(u"Adding table indexer_mapping")
+        self.connection.action(
+            "CREATE TABLE indexer_mapping (indexer_id INTEGER, indexer NUMERIC, mindexer_id INTEGER, mindexer NUMERIC, PRIMARY KEY (indexer_id, indexer))")
+
+        self.incDBVersion()

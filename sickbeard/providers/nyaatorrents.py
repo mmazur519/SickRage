@@ -65,7 +65,7 @@ class NyaaProvider(generic.TorrentProvider):
     def _get_episode_search_strings(self, ep_obj, add_string=''):
         return self._get_season_search_strings(ep_obj)
 
-    def _doSearch(self, search_string, show=None, age=None):
+    def _doSearch(self, search_string, search_mode='eponly', epcount=0, age=0):
         if self.show and not self.show.is_anime:
             logger.log(u"" + str(self.show.name) + " is not an anime skiping " + str(self.name))
             return []
@@ -79,31 +79,29 @@ class NyaaProvider(generic.TorrentProvider):
 
         logger.log(u"Search string: " + searchURL, logger.DEBUG)
 
-
         data = self.cache.getRSSFeed(searchURL)
-
         if not data:
-            logger.log(u"Error trying to load NyaaTorrents RSS feed: " + searchURL, logger.ERROR)
-            logger.log(u"RSS data: " + data, logger.DEBUG)
             return []
 
-        items = data.entries
+        if 'entries' in data:
+            items = data.entries
 
-        results = []
+            results = []
 
-        for curItem in items:
+            for curItem in items:
 
-            (title, url) = self._get_title_and_url(curItem)
+                (title, url) = self._get_title_and_url(curItem)
 
-            if not title or not url:
-                logger.log(
-                    u"The XML returned from the NyaaTorrents RSS feed is incomplete, this result is unusable: " + data,
-                    logger.ERROR)
-                continue
+                if title and url:
+                    results.append(curItem)
+                else:
+                    logger.log(
+                        u"The data returned from the " + self.name + " is incomplete, this result is unusable",
+                        logger.DEBUG)
 
-            results.append(curItem)
+            return results
 
-        return results
+        return []
 
     def _get_title_and_url(self, item):
 
