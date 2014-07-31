@@ -30,7 +30,7 @@ class GitHub(object):
     needs it for - list of commits.
     """
 
-    def __init__(self, github_repo_user, github_repo, branch='master'):
+    def __init__(self, github_repo_user, github_repo, branch):
 
         self.github_repo_user = github_repo_user
         self.github_repo = github_repo

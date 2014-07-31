@@ -49,7 +49,6 @@ from sickbeard.common import SD, SKIPPED, NAMING_REPEAT
 from sickbeard.databases import mainDB, cache_db, failed_db
 
 from lib.configobj import ConfigObj
-import xml.etree.ElementTree as ElementTree
 
 PID = None
 
@@ -102,6 +101,7 @@ VERSION_NOTIFY = False
 AUTO_UPDATE = False
 NOTIFY_ON_UPDATE = False
 CUR_COMMIT_HASH = None
+BRANCH = ''
 
 INIT_LOCK = Lock()
 started = False
@@ -442,7 +442,7 @@ __INITIALIZED__ = False
 def initialize(consoleLogging=True):
     with INIT_LOCK:
 
-        global ACTUAL_LOG_DIR, LOG_DIR, WEB_PORT, WEB_LOG, ENCRYPTION_VERSION, WEB_ROOT, WEB_USERNAME, WEB_PASSWORD, WEB_HOST, WEB_IPV6, USE_API, API_KEY, ENABLE_HTTPS, HTTPS_CERT, HTTPS_KEY, \
+        global BRANCH, ACTUAL_LOG_DIR, LOG_DIR, WEB_PORT, WEB_LOG, ENCRYPTION_VERSION, WEB_ROOT, WEB_USERNAME, WEB_PASSWORD, WEB_HOST, WEB_IPV6, USE_API, API_KEY, ENABLE_HTTPS, HTTPS_CERT, HTTPS_KEY, \
             HANDLE_REVERSE_PROXY, USE_NZBS, USE_TORRENTS, NZB_METHOD, NZB_DIR, DOWNLOAD_PROPERS, CHECK_PROPERS_INTERVAL, ALLOW_HIGH_PRIORITY, TORRENT_METHOD, \
             SAB_USERNAME, SAB_PASSWORD, SAB_APIKEY, SAB_CATEGORY, SAB_HOST, \
             NZBGET_USERNAME, NZBGET_PASSWORD, NZBGET_CATEGORY, NZBGET_HOST, NZBGET_USE_HTTPS, backlogSearchScheduler, \
@@ -508,6 +508,9 @@ def initialize(consoleLogging=True):
         CheckSection(CFG, 'Pushalot')
         CheckSection(CFG, 'Pushbullet')
         CheckSection(CFG, 'Subtitles')
+
+        # branch
+        BRANCH = check_setting_str(CFG, 'General', 'branch', '')
 
         ACTUAL_CACHE_DIR = check_setting_str(CFG, 'General', 'cache_dir', 'cache')
         # fix bad configs due to buggy code
@@ -1140,16 +1143,20 @@ def start():
             searchQueueScheduler.start()
 
             # start the queue checker
-            properFinderScheduler.start()
+            if DOWNLOAD_PROPERS:
+                properFinderScheduler.start()
 
             # start the proper finder
-            autoPostProcesserScheduler.start()
+            if PROCESS_AUTOMATICALLY:
+                autoPostProcesserScheduler.start()
 
             # start the subtitles finder
-            subtitlesFinderScheduler.start()
+            if USE_SUBTITLES:
+                subtitlesFinderScheduler.start()
 
             # start the trakt checker
-            traktCheckerScheduler.start()
+            if USE_TRAKT:
+                traktCheckerScheduler.start()
 
             started = True
 
@@ -1170,7 +1177,7 @@ def halt():
             events.stop.set()
             logger.log(u"Waiting for the EVENTS thread to exit")
             try:
-                events.join()
+                events.join(10)
             except:
                 pass
 
@@ -1216,33 +1223,37 @@ def halt():
             except:
                 pass
 
-            autoPostProcesserScheduler.stop.set()
-            logger.log(u"Waiting for the POSTPROCESSER thread to exit")
-            try:
-                autoPostProcesserScheduler.join(10)
-            except:
-                pass
+            if PROCESS_AUTOMATICALLY:
+                autoPostProcesserScheduler.stop.set()
+                logger.log(u"Waiting for the POSTPROCESSER thread to exit")
+                try:
+                    autoPostProcesserScheduler.join(10)
+                except:
+                    pass
 
-            traktCheckerScheduler.stop.set()
-            logger.log(u"Waiting for the TRAKTCHECKER thread to exit")
-            try:
-                traktCheckerScheduler.join(10)
-            except:
-                pass
+            if USE_TRAKT:
+                traktCheckerScheduler.stop.set()
+                logger.log(u"Waiting for the TRAKTCHECKER thread to exit")
+                try:
+                    traktCheckerScheduler.join(10)
+                except:
+                    pass
 
-            properFinderScheduler.stop.set()
-            logger.log(u"Waiting for the PROPERFINDER thread to exit")
-            try:
-                properFinderScheduler.join(10)
-            except:
-                pass
+            if DOWNLOAD_PROPERS:
+                properFinderScheduler.stop.set()
+                logger.log(u"Waiting for the PROPERFINDER thread to exit")
+                try:
+                    properFinderScheduler.join(10)
+                except:
+                    pass
 
-            subtitlesFinderScheduler.stop.set()
-            logger.log(u"Waiting for the SUBTITLESFINDER thread to exit")
-            try:
-                subtitlesFinderScheduler.join(10)
-            except:
-                pass
+            if USE_SUBTITLES:
+                subtitlesFinderScheduler.stop.set()
+                logger.log(u"Waiting for the SUBTITLESFINDER thread to exit")
+                try:
+                    subtitlesFinderScheduler.join(10)
+                except:
+                    pass
 
             if ADBA_CONNECTION:
                 ADBA_CONNECTION.logout()
@@ -1254,7 +1265,6 @@ def halt():
 
             __INITIALIZED__ = False
             started = False
-
 
 def sig_handler(signum=None, frame=None):
     if type(signum) != type(None):
@@ -1291,6 +1301,7 @@ def save_config():
 
     # For passwords you must include the word `password` in the item_name and add `helpers.encrypt(ITEM_NAME, ENCRYPTION_VERSION)` in save_config()
     new_config['General'] = {}
+    new_config['General']['branch'] = BRANCH
     new_config['General']['config_version'] = CONFIG_VERSION
     new_config['General']['encryption_version'] = int(ENCRYPTION_VERSION)
     new_config['General']['log_dir'] = ACTUAL_LOG_DIR if ACTUAL_LOG_DIR else 'Logs'

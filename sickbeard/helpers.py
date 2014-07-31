@@ -17,12 +17,14 @@
 # along with SickRage.  If not, see <http://www.gnu.org/licenses/>.
 
 from __future__ import with_statement
+import getpass
 
 import os
 import re
 import shutil
 import socket
 import stat
+import tempfile
 import time
 import traceback
 import urllib
@@ -1137,7 +1139,11 @@ def extractZip(archive, targetDir):
 
 
 def mapIndexersToShow(showObj):
-    mapped = {showObj.indexer: showObj.indexerid}
+    mapped = {}
+
+    # init mapped indexers object
+    for indexer in sickbeard.indexerApi().indexers:
+        mapped[indexer] = showObj.indexerid if int(indexer) == int(showObj.indexer) else 0
 
     myDB = db.DBConnection()
     sqlResults = myDB.select(
@@ -1163,7 +1169,7 @@ def mapIndexersToShow(showObj):
                 mapped_show = t[showObj.name]
             except sickbeard.indexer_shownotfound:
                 logger.log(u"Unable to map " + sickbeard.indexerApi(showObj.indexer).name + "->" + sickbeard.indexerApi(
-                    indexer).name + " for show: " + showObj.name + ", skipping it", logger.ERROR)
+                    indexer).name + " for show: " + showObj.name + ", skipping it", logger.DEBUG)
                 mapped_show = None
 
             if len(mapped_show) and not len(mapped_show) > 1:
@@ -1198,13 +1204,29 @@ def touchFile(fname, atime=None):
     return False
 
 
+def _getTempDir():
+    """Returns the [system temp dir]/tvdb_api-u501 (or
+    tvdb_api-myuser)
+    """
+    if hasattr(os, 'getuid'):
+        uid = "u%d" % (os.getuid())
+    else:
+        # For Windows
+        try:
+            uid = getpass.getuser()
+        except ImportError:
+            return os.path.join(tempfile.gettempdir(), "sickrage")
+
+    return os.path.join(tempfile.gettempdir(), "sickrage-%s" % (uid))
+
 def getURL(url, post_data=None, params=None, headers=None, timeout=30, session=None, json=False):
     """
     Returns a byte-string retrieved from the url provider.
     """
 
     # request session
-    session = CacheControl(sess=session, cache=caches.FileCache(os.path.join(sickbeard.CACHE_DIR, 'sessions')))
+    cache_dir = sickbeard.CACHE_DIR or _getTempDir()
+    session = CacheControl(sess=session, cache=caches.FileCache(os.path.join(cache_dir, 'sessions')))
 
     # request session headers
     req_headers = {'User-Agent': USER_AGENT, 'Accept-Encoding': 'gzip,deflate'}
@@ -1233,6 +1255,11 @@ def getURL(url, post_data=None, params=None, headers=None, timeout=30, session=N
             }
 
         resp = session.get(url, data=post_data, timeout=timeout)
+        if not resp.ok:
+            logger.log(u"Requested url " + url + " returned status code is " + str(
+                resp.status_code) + ': ' + clients.http_error_code[resp.status_code], logger.DEBUG)
+            return
+
     except requests.exceptions.HTTPError, e:
         logger.log(u"HTTP error " + str(e.errno) + " while loading URL " + url, logger.WARNING)
         return
@@ -1246,20 +1273,15 @@ def getURL(url, post_data=None, params=None, headers=None, timeout=30, session=N
         logger.log(u"Unknown exception while loading URL " + url + ": " + traceback.format_exc(), logger.WARNING)
         return
 
-    if not resp.ok:
-        logger.log(u"Requested url " + url + " returned status code is " + str(
-            resp.status_code) + ': ' + clients.http_error_code[resp.status_code], logger.WARNING)
-        return
-
     if json:
         return resp.json()
 
     return resp.content
 
-
 def download_file(url, filename, session=None):
     # create session
-    session = CacheControl(sess=session, cache=caches.FileCache(os.path.join(sickbeard.CACHE_DIR, 'sessions')))
+    cache_dir = sickbeard.CACHE_DIR or _getTempDir()
+    session = CacheControl(sess=session, cache=caches.FileCache(os.path.join(cache_dir, 'sessions')))
 
     # request session headers
     session.headers.update({'User-Agent': USER_AGENT, 'Accept-Encoding': 'gzip,deflate'})
@@ -1281,6 +1303,8 @@ def download_file(url, filename, session=None):
     try:
         resp = session.get(url)
         if not resp.ok:
+            logger.log(u"Requested url " + url + " returned status code is " + str(
+                resp.status_code) + ': ' + clients.http_error_code[resp.status_code], logger.DEBUG)
             return False
 
         with open(filename, 'wb') as fp:
@@ -1309,14 +1333,6 @@ def download_file(url, filename, session=None):
     except Exception:
         _remove_file_failed(filename)
         logger.log(u"Unknown exception while loading URL " + url + ": " + traceback.format_exc(), logger.WARNING)
-        return False
-
-    if not resp:
-        logger.log(u"No data returned from " + url, logger.DEBUG)
-        return False
-    elif not resp.ok:
-        logger.log(u"Requested url " + url + " returned status code is " + str(
-            resp.status_code) + ': ' + clients.http_error_code[resp.status_code], logger.WARNING)
         return False
 
     return True

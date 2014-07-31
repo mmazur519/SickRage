@@ -34,9 +34,6 @@ class TraktChecker():
         self.todoBacklog = []
 
     def run(self, force=False):
-        if not sickbeard.USE_TRAKT:
-            return
-
         try:
             # add shows from trakt.tv watchlist
             if sickbeard.TRAKT_USE_WATCHLIST:
@@ -60,32 +57,26 @@ class TraktChecker():
             logger.log(u"Could not connect to trakt service, aborting library check", logger.ERROR)
             return
 
-        return filter(lambda x: int(indexerid) in [int(x.tvdb_id), int(x.tvrage_id)], library)
+        return filter(lambda x: int(indexerid) in [int(x['tvdb_id']) or 0, int(x['tvrage_id'])] or 0, library)
 
     def syncLibrary(self):
-        logger.log(u"Syncing library to trakt.tv show library", logger.DEBUG)
-        if sickbeard.showList:
-            for myShow in sickbeard.showList:
-                self.addShowToTraktLibrary(myShow)
+        logger.log(u"Syncing Trakt.tv show library", logger.DEBUG)
+
+        for myShow in sickbeard.showList:
+            self.addShowToTraktLibrary(myShow)
 
     def removeShowFromTraktLibrary(self, show_obj):
+        data = {}
         if self.findShow(show_obj.indexer, show_obj.indexerid):
             # URL parameters
-            data = {}
-            if show_obj.indexer == 1:
-                data['tvdb_id'] = show_obj.indexerid
-                data['title'] = show_obj.name
-                data['year'] = show_obj.startyear
+            data['tvdb_id'] = helpers.mapIndexersToShow(show_obj)[1]
+            data['title'] = show_obj.name
+            data['year'] = show_obj.startyear
 
-            elif show_obj.indexer == 2:
-                data['tvrage_id'] = show_obj.indexerid
-                data['title'] = show_obj.name
-                data['year'] = show_obj.startyear
-
-            if data is not None:
-                logger.log(u"Removing " + show_obj.name + " from trakt.tv library", logger.DEBUG)
-                TraktCall("show/unlibrary/%API%", sickbeard.TRAKT_API, sickbeard.TRAKT_USERNAME, sickbeard.TRAKT_PASSWORD,
-                          data)
+        if len(data):
+            logger.log(u"Removing " + show_obj.name + " from trakt.tv library", logger.DEBUG)
+            TraktCall("show/unlibrary/%API%", sickbeard.TRAKT_API, sickbeard.TRAKT_USERNAME, sickbeard.TRAKT_PASSWORD,
+                      data)
 
     def addShowToTraktLibrary(self, show_obj):
         """
@@ -94,23 +85,18 @@ class TraktChecker():
         show_obj: The TVShow object to add to trakt
         """
 
+        data = {}
+
         if not self.findShow(show_obj.indexer, show_obj.indexerid):
             # URL parameters
-            data = {}
-            if show_obj.indexer == 1:
-                data['tvdb_id'] = show_obj.indexerid
-                data['title'] = show_obj.name
-                data['year'] = show_obj.startyear
+            data['tvdb_id'] = helpers.mapIndexersToShow(show_obj)[1]
+            data['title'] = show_obj.name
+            data['year'] = show_obj.startyear
 
-            elif show_obj.indexer == 2:
-                data['tvrage_id'] = show_obj.indexerid
-                data['title'] = show_obj.name
-                data['year'] = show_obj.startyear
-
-            if data:
-                logger.log(u"Adding " + show_obj.name + " to trakt.tv library", logger.DEBUG)
-                TraktCall("show/library/%API%", sickbeard.TRAKT_API, sickbeard.TRAKT_USERNAME, sickbeard.TRAKT_PASSWORD,
-                          data)
+        if len(data):
+            logger.log(u"Adding " + show_obj.name + " to trakt.tv library", logger.DEBUG)
+            TraktCall("show/library/%API%", sickbeard.TRAKT_API, sickbeard.TRAKT_USERNAME, sickbeard.TRAKT_PASSWORD,
+                      data)
 
     def updateShows(self):
         logger.log(u"Starting trakt show watchlist check", logger.DEBUG)
