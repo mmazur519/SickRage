@@ -224,6 +224,7 @@ class PostProcessor(object):
                         self._log(u'Cannot change permissions of ' + cur_file, logger.WARNING)
 
                 ek.ek(os.remove, cur_file)
+
                 # do the library update for synoindex
                 notifiers.synoindex_notifier.deleteFile(cur_file)
 
@@ -486,9 +487,6 @@ class PostProcessor(object):
         if parse_result.is_air_by_date:
             season = -1
             episodes = [parse_result.air_date]
-        elif parse_result.is_sports:
-            season = -1
-            episodes = [parse_result.sports_air_date]
         else:
             season = parse_result.season_number
             episodes = parse_result.episode_numbers
@@ -855,6 +853,18 @@ class PostProcessor(object):
                 u"This download is marked a priority download so I'm going to replace an existing file if I find one",
                 logger.DEBUG)
 
+        # delete the existing file (and company)
+        for cur_ep in [ep_obj] + ep_obj.relatedEps:
+            try:
+                self._delete(cur_ep.location, associated_files=True)
+
+                # clean up any left over folders
+                if cur_ep.location:
+                    helpers.delete_empty_folders(ek.ek(os.path.dirname, cur_ep.location),
+                                                 keep_dir=ep_obj.show._location)
+            except (OSError, IOError):
+                raise exceptions.PostProcessingFailed("Unable to delete the existing files")
+
             # set the status of the episodes
             # for curEp in [ep_obj] + ep_obj.relatedEps:
             #    curEp.status = common.Quality.compositeStatus(common.SNATCHED, new_ep_quality)
@@ -965,17 +975,6 @@ class PostProcessor(object):
                 raise exceptions.PostProcessingFailed("Unable to move the files to their new home")
         except (OSError, IOError):
             raise exceptions.PostProcessingFailed("Unable to move the files to their new home")
-
-        # delete the existing file (and company)
-        for cur_ep in [ep_obj] + ep_obj.relatedEps:
-            try:
-                self._delete(cur_ep.location, associated_files=True)
-                # clean up any left over folders
-                if cur_ep.location:
-                    helpers.delete_empty_folders(ek.ek(os.path.dirname, cur_ep.location),
-                                                 keep_dir=ep_obj.show._location)
-            except (OSError, IOError):
-                raise exceptions.PostProcessingFailed("Unable to delete the existing files")
                 
         # download subtitles
         if sickbeard.USE_SUBTITLES and ep_obj.show.subtitles:
