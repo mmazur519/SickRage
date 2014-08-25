@@ -124,9 +124,6 @@ class NameParser(object):
             if 'series_num' in named_groups and match.group('series_num'):
                 result.score += 1
 
-            if 'series_event' in named_groups and match.group('series_event'):
-                result.score += 1
-
             if 'season_num' in named_groups:
                 tmp_season = int(match.group('season_num'))
                 if cur_regex_name == 'bare' and tmp_season in (19, 20):
@@ -573,7 +570,7 @@ class ParseResult(object):
 
     @property
     def is_air_by_date(self):
-        if self.season_number == None and len(self.episode_numbers) == 0 and self.air_date:
+        if self.air_date:
             return True
         return False
 
