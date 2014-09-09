@@ -27,7 +27,7 @@ import sickbeard
 import requests
 
 from sickbeard import helpers, classes, logger, db
-from sickbeard.common import MULTI_EP_RESULT, SEASON_RESULT
+from sickbeard.common import MULTI_EP_RESULT, SEASON_RESULT, USER_AGENT
 from sickbeard import tvcache
 from sickbeard import encodingKludge as ek
 from sickbeard.exceptions import ex
@@ -36,6 +36,7 @@ from sickbeard.common import Quality
 from sickbeard import clients
 
 from hachoir_parser import createParser
+
 
 class GenericProvider:
     NZB = "nzb"
@@ -63,7 +64,10 @@ class GenericProvider:
         self.session = requests.session()
 
         self.headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 6.1; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/32.0.1700.107 Safari/537.36'}
+            # Using USER_AGENT instead of Mozilla to keep same user agent along authentication and download phases,
+            #otherwise session might be broken and download fail, asking again for authentication
+            #'User-Agent': 'Mozilla/5.0 (Windows NT 6.1; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/32.0.1700.107 Safari/537.36'}
+            'User-Agent': USER_AGENT}
 
     def getID(self):
         return GenericProvider.makeID(self.name)
@@ -245,7 +249,7 @@ class GenericProvider:
 
         return title, url
 
-    def findSearchResults(self, show, season, episodes, search_mode, manualSearch=False):
+    def findSearchResults(self, show, episodes, search_mode, manualSearch=False):
 
         self._checkAuth()
         self.show = show
@@ -258,10 +262,10 @@ class GenericProvider:
             # search cache for episode result
             cacheResult = self.cache.searchCache(epObj, manualSearch)
             if cacheResult:
-                if epObj not in results:
-                    results = [cacheResult]
+                if epObj.episode not in results:
+                    results[epObj.episode] = cacheResult
                 else:
-                    results.append(cacheResult)
+                    results[epObj.episode].extend(cacheResult)
 
                 # found result, search next episode
                 continue
@@ -332,16 +336,15 @@ class GenericProvider:
                         logger.DEBUG)
                     addCacheEntry = True
                 else:
-                    if not len(parse_result.episode_numbers) and (
-                                parse_result.season_number and parse_result.season_number != season) or (
-                                not parse_result.season_number and season != 1):
+                    if not len(parse_result.episode_numbers) and parse_result.season_number and not [ep for ep in
+                                                                                                     episodes if
+                                                                                                     ep.season == parse_result.season_number and ep.episode in parse_result.episode_numbers]:
                         logger.log(
                             u"The result " + title + " doesn't seem to be a valid season that we are trying to snatch, ignoring",
                             logger.DEBUG)
                         addCacheEntry = True
-                    elif len(parse_result.episode_numbers) and (
-                                    parse_result.season_number != season or not [ep for ep in episodes if
-                                                                                 ep.scene_episode in parse_result.episode_numbers]):
+                    elif len(parse_result.episode_numbers) and not [ep for ep in episodes if
+                                                                    ep.season == parse_result.season_number and ep.episode in parse_result.episode_numbers]:
                         logger.log(
                             u"The result " + title + " doesn't seem to be a valid episode that we are trying to snatch, ignoring",
                             logger.DEBUG)
@@ -349,7 +352,7 @@ class GenericProvider:
 
                 if not addCacheEntry:
                     # we just use the existing info for normal searches
-                    actual_season = season
+                    actual_season = parse_result.season_number
                     actual_episodes = parse_result.episode_numbers
             else:
                 if not (parse_result.is_air_by_date):

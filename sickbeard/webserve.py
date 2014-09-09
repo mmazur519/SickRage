@@ -596,6 +596,7 @@ class ManageSearches(MainHandler):
         t.backlogRunning = sickbeard.searchQueueScheduler.action.is_backlog_in_progress()  # @UndefinedVariable
         t.dailySearchStatus = sickbeard.dailySearchScheduler.action.amActive  # @UndefinedVariable
         t.findPropersStatus = sickbeard.properFinderScheduler.action.amActive  # @UndefinedVariable
+        t.queueLength = sickbeard.searchQueueScheduler.action.queue_length()
 
         t.submenu = ManageMenu()
 
@@ -1477,7 +1478,7 @@ class ConfigGeneral(MainHandler):
                     handle_reverse_proxy=None, sort_article=None, auto_update=None, notify_on_update=None,
                     proxy_setting=None, anon_redirect=None, git_path=None, calendar_unprotected=None,
                     fuzzy_dating=None, trim_zero=None, date_preset=None, date_preset_na=None, time_preset=None,
-                    indexer_timeout=None, play_videos=None):
+                    indexer_timeout=None, play_videos=None, rootDir=None):
 
         results = []
 
@@ -1488,6 +1489,7 @@ class ConfigGeneral(MainHandler):
         sickbeard.AUTO_UPDATE = config.checkbox_to_value(auto_update)
         sickbeard.NOTIFY_ON_UPDATE = config.checkbox_to_value(notify_on_update)
         # sickbeard.LOG_DIR is set in config.change_LOG_DIR()
+        sickbeard.ROOT_DIRS = rootDir
 
         sickbeard.UPDATE_SHOWS_ON_START = config.checkbox_to_value(update_shows_on_start)
         config.change_UPDATE_FREQUENCY(update_frequency)
@@ -1700,7 +1702,7 @@ class ConfigPostProcessing(MainHandler):
                            wdtv_data=None, tivo_data=None, mede8er_data=None,
                            keep_processed_dir=None, process_method=None, process_automatically=None,
                            rename_episodes=None, airdate_episodes=None, unpack=None,
-                           move_associated_files=None, nfo_rename=None, tv_download_dir=None, naming_custom_abd=None,
+                           move_associated_files=None, postpone_if_sync_files=None, nfo_rename=None, tv_download_dir=None, naming_custom_abd=None,
                            naming_anime=None,
                            naming_abd_pattern=None, naming_strip_year=None, use_failed_downloads=None,
                            delete_failed=None, extra_scripts=None, skip_removed_files=None,
@@ -1734,6 +1736,7 @@ class ConfigPostProcessing(MainHandler):
         sickbeard.RENAME_EPISODES = config.checkbox_to_value(rename_episodes)
         sickbeard.AIRDATE_EPISODES = config.checkbox_to_value(airdate_episodes)
         sickbeard.MOVE_ASSOCIATED_FILES = config.checkbox_to_value(move_associated_files)
+        sickbeard.POSTPONE_IF_SYNC_FILES = config.checkbox_to_value(postpone_if_sync_files)
         sickbeard.NAMING_CUSTOM_ABD = config.checkbox_to_value(naming_custom_abd)
         sickbeard.NAMING_CUSTOM_SPORTS = config.checkbox_to_value(naming_custom_sports)
         sickbeard.NAMING_STRIP_YEAR = config.checkbox_to_value(naming_strip_year)
@@ -1909,6 +1912,34 @@ class ConfigProviders(MainHandler):
             sickbeard.newznabProviderList.append(newProvider)
             return newProvider.getID() + '|' + newProvider.configStr()
 
+    def getNewznabCategories(self, name, url, key):
+        '''
+        Retrieves a list of possible categories with category id's
+        Using the default url/api?cat
+        http://yournewznaburl.com/api?t=caps&apikey=yourapikey
+        '''
+        error = ""
+        success = False
+        
+        if not name:
+            error += "\nNo Provider Name specified" 
+        if not url:
+            error += "\nNo Provider Url specified"
+        if not key:
+            error += "\nNo Provider Api key specified"
+            
+        if error <> "":
+            return json.dumps({'success' : False, 'error': error})
+        
+        #Get list with Newznabproviders        
+        #providerDict = dict(zip([x.getID() for x in sickbeard.newznabProviderList], sickbeard.newznabProviderList))
+        
+        #Get newznabprovider obj with provided name
+        tempProvider= newznab.NewznabProvider(name, url, key)
+        
+        success, tv_categories, error = tempProvider.get_newznab_categories()
+        
+        return json.dumps({'success' : success,'tv_categories' : tv_categories, 'error' : error})
 
     def deleteNewznabProvider(self, nnid):
 
@@ -2002,24 +2033,25 @@ class ConfigProviders(MainHandler):
                 if not curNewznabProviderStr:
                     continue
 
-                cur_name, cur_url, cur_key = curNewznabProviderStr.split('|')
+                cur_name, cur_url, cur_key, cur_cat = curNewznabProviderStr.split('|')
                 cur_url = config.clean_url(cur_url)
 
                 newProvider = newznab.NewznabProvider(cur_name, cur_url, key=cur_key)
+
                 cur_id = newProvider.getID()
 
                 # if it already exists then update it
                 if cur_id in newznabProviderDict:
                     newznabProviderDict[cur_id].name = cur_name
                     newznabProviderDict[cur_id].url = cur_url
-
                     newznabProviderDict[cur_id].key = cur_key
+                    newznabProviderDict[cur_id].catIDs = cur_cat 
                     # a 0 in the key spot indicates that no key is needed
                     if cur_key == '0':
                         newznabProviderDict[cur_id].needs_auth = False
                     else:
                         newznabProviderDict[cur_id].needs_auth = True
-
+                    
                     try:
                         newznabProviderDict[cur_id].search_mode = str(kwargs[cur_id + '_search_mode']).strip()
                     except:
@@ -2029,19 +2061,19 @@ class ConfigProviders(MainHandler):
                         newznabProviderDict[cur_id].search_fallback = config.checkbox_to_value(
                             kwargs[cur_id + '_search_fallback'])
                     except:
-                        pass
+                        newznabProviderDict[cur_id].search_fallback = 0
 
                     try:
                         newznabProviderDict[cur_id].enable_daily = config.checkbox_to_value(
                             kwargs[cur_id + '_enable_daily'])
                     except:
-                        pass
+                        newznabProviderDict[cur_id].enable_daily = 0
 
                     try:
                         newznabProviderDict[cur_id].enable_backlog = config.checkbox_to_value(
                             kwargs[cur_id + '_enable_backlog'])
                     except:
-                        pass
+                        newznabProviderDict[cur_id].enable_backlog = 0
                 else:
                     sickbeard.newznabProviderList.append(newProvider)
 
@@ -2196,21 +2228,21 @@ class ConfigProviders(MainHandler):
                     curTorrentProvider.search_fallback = config.checkbox_to_value(
                         kwargs[curTorrentProvider.getID() + '_search_fallback'])
                 except:
-                    curTorrentProvider.search_fallback = 0
+                    curTorrentProvider.search_fallback = 0  # these exceptions are catching unselected checkboxes
 
             if hasattr(curTorrentProvider, 'enable_daily'):
                 try:
                     curTorrentProvider.enable_daily = config.checkbox_to_value(
                         kwargs[curTorrentProvider.getID() + '_enable_daily'])
                 except:
-                    curTorrentProvider.enable_daily = 1
+                    curTorrentProvider.enable_daily = 0 # these exceptions are actually catching unselected checkboxes
 
             if hasattr(curTorrentProvider, 'enable_backlog'):
                 try:
                     curTorrentProvider.enable_backlog = config.checkbox_to_value(
                         kwargs[curTorrentProvider.getID() + '_enable_backlog'])
                 except:
-                    curTorrentProvider.enable_backlog = 1
+                    curTorrentProvider.enable_backlog = 0 # these exceptions are actually catching unselected checkboxes
 
         for curNzbProvider in [curProvider for curProvider in sickbeard.providers.sortedProviderList() if
                                curProvider.providerType == sickbeard.GenericProvider.NZB]:
@@ -2238,21 +2270,21 @@ class ConfigProviders(MainHandler):
                     curNzbProvider.search_fallback = config.checkbox_to_value(
                         kwargs[curNzbProvider.getID() + '_search_fallback'])
                 except:
-                    curNzbProvider.search_fallback = 0
+                    curNzbProvider.search_fallback = 0  # these exceptions are actually catching unselected checkboxes
 
             if hasattr(curNzbProvider, 'enable_daily'):
                 try:
                     curNzbProvider.enable_daily = config.checkbox_to_value(
                         kwargs[curNzbProvider.getID() + '_enable_daily'])
                 except:
-                    curNzbProvider.enable_daily = 1
+                    curNzbProvider.enable_daily = 0  # these exceptions are actually catching unselected checkboxes
 
             if hasattr(curNzbProvider, 'enable_backlog'):
                 try:
                     curNzbProvider.enable_backlog = config.checkbox_to_value(
                         kwargs[curNzbProvider.getID() + '_enable_backlog'])
                 except:
-                    curNzbProvider.enable_backlog = 1
+                    curNzbProvider.enable_backlog = 0  # these exceptions are actually catching unselected checkboxes
 
         sickbeard.NEWZNAB_DATA = '!!!'.join([x.configStr() for x in sickbeard.newznabProviderList])
         sickbeard.PROVIDER_ORDER = provider_list
@@ -4091,7 +4123,7 @@ class Home(MainHandler):
             else:
                 return self._genericMessage("Error", errMsg)
 
-        segment = {}
+        segments = {}
         if eps is not None:
 
             sql_l = []
@@ -4108,10 +4140,10 @@ class Home(MainHandler):
 
                 if int(status) in [WANTED, FAILED]:
                     # figure out what episodes are wanted so we can backlog them
-                    if epObj.season in segment:
-                        segment[epObj.season].append(epObj)
+                    if epObj.season in segments:
+                        segments[epObj.season].append(epObj)
                     else:
-                        segment[epObj.season] = [epObj]
+                        segments[epObj.season] = [epObj]
 
                 with epObj.lock:
                     # don't let them mess up UNAIRED episodes
@@ -4145,30 +4177,34 @@ class Home(MainHandler):
 
         if int(status) == WANTED:
             msg = "Backlog was automatically started for the following seasons of <b>" + showObj.name + "</b>:<br />"
-            for season in segment:
+
+            for season, segment in segments.items():
+                cur_backlog_queue_item = search_queue.BacklogQueueItem(showObj, segment)
+                sickbeard.searchQueueScheduler.action.add_item(cur_backlog_queue_item)  # @UndefinedVariable
+
                 msg += "<li>Season " + str(season) + "</li>"
                 logger.log(u"Sending backlog for " + showObj.name + " season " + str(
                     season) + " because some eps were set to wanted")
+
             msg += "</ul>"
 
-            cur_backlog_queue_item = search_queue.BacklogQueueItem(showObj, segment)
-            sickbeard.searchQueueScheduler.action.add_item(cur_backlog_queue_item)  # @UndefinedVariable
-
-            if segment:
+            if segments:
                 ui.notifications.message("Backlog started", msg)
 
         if int(status) == FAILED:
             msg = "Retrying Search was automatically started for the following season of <b>" + showObj.name + "</b>:<br />"
-            for season in segment:
+
+            for season, segment in segments.items():
+                cur_failed_queue_item = search_queue.FailedQueueItem(showObj, segment)
+                sickbeard.searchQueueScheduler.action.add_item(cur_failed_queue_item)  # @UndefinedVariable
+
                 msg += "<li>Season " + str(season) + "</li>"
                 logger.log(u"Retrying Search for " + showObj.name + " season " + str(
                     season) + " because some eps were set to failed")
+
             msg += "</ul>"
 
-            cur_failed_queue_item = search_queue.FailedQueueItem(showObj, segment)
-            sickbeard.searchQueueScheduler.action.add_item(cur_failed_queue_item)  # @UndefinedVariable
-
-            if segment:
+            if segments:
                 ui.notifications.message("Retry Search started", msg)
 
         if direct:
@@ -4410,11 +4446,8 @@ class Home(MainHandler):
         if isinstance(ep_obj, str):
             return json.dumps({'result': 'failure'})
 
-        # create failed segment
-        segment = {season: [ep_obj]}
-
         # make a queue item for it and put it on the queue
-        ep_queue_item = search_queue.FailedQueueItem(ep_obj.show, segment)
+        ep_queue_item = search_queue.FailedQueueItem(ep_obj.show, ep_obj)
         sickbeard.searchQueueScheduler.action.add_item(ep_queue_item)  # @UndefinedVariable
 
         # wait until the queue item tells us whether it worked or not
