@@ -319,10 +319,13 @@ def isFirstBestMatch(result):
 
     return False
 
-def searchForNeededEpisodes():
+def searchForNeededEpisodes(show, episode):
     foundResults = {}
 
     didSearch = False
+
+    # build name cache for show
+    sickbeard.name_cache.buildNameCache(show)
 
     origThreadName = threading.currentThread().name
 
@@ -333,7 +336,7 @@ def searchForNeededEpisodes():
 
         try:
             curProvider.cache.updateCache()
-            curFoundResults = curProvider.searchRSS()
+            curFoundResults = curProvider.searchRSS(episode)
         except exceptions.AuthException, e:
             logger.log(u"Authentication error: " + ex(e), logger.ERROR)
             continue
@@ -395,6 +398,9 @@ def searchProviders(show, episodes, manualSearch=False):
     finalResults = []
 
     didSearch = False
+
+    # build name cache for show
+    sickbeard.name_cache.buildNameCache(show)
 
     origThreadName = threading.currentThread().name
 

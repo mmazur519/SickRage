@@ -192,18 +192,21 @@ ALLOW_HIGH_PRIORITY = False
 AUTOPOSTPROCESSER_FREQUENCY = None
 DAILYSEARCH_FREQUENCY = None
 UPDATE_FREQUENCY = None
-BACKLOG_FREQUENCY = None
 DAILYSEARCH_STARTUP = False
+BACKLOG_FREQUENCY = None
 BACKLOG_STARTUP = False
 
-MIN_AUTOPOSTPROCESSER_FREQUENCY = 1
-MIN_BACKLOG_FREQUENCY = 1440
-MIN_DAILYSEARCH_FREQUENCY = 10
-MIN_UPDATE_FREQUENCY = 1
 DEFAULT_AUTOPOSTPROCESSER_FREQUENCY = 10
-DEFAULT_BACKLOG_FREQUENCY = 10080
-DEFAULT_DAILYSEARCH_FREQUENCY = 60
+DEFAULT_DAILYSEARCH_FREQUENCY = 40
+DEFAULT_BACKLOG_FREQUENCY = 21
 DEFAULT_UPDATE_FREQUENCY = 1
+
+MIN_AUTOPOSTPROCESSER_FREQUENCY = 1
+MIN_DAILYSEARCH_FREQUENCY = 10
+MIN_BACKLOG_FREQUENCY = 10
+MIN_UPDATE_FREQUENCY = 1
+
+BACKLOG_DAYS = 7
 
 ADD_SHOWS_WO_DIR = False
 CREATE_MISSING_SHOW_DIRS = False
@@ -444,6 +447,9 @@ TRAKT_API_KEY = 'abd806c54516240c76e4ebc9c5ccf394'
 
 __INITIALIZED__ = False
 
+def get_backlog_cycle_time():
+    cycletime = DAILYSEARCH_FREQUENCY * 2 + 7
+    return max([cycletime, 720])
 
 def initialize(consoleLogging=True):
     with INIT_LOCK:
@@ -488,7 +494,7 @@ def initialize(consoleLogging=True):
             USE_FAILED_DOWNLOADS, DELETE_FAILED, ANON_REDIRECT, LOCALHOST_IP, TMDB_API_KEY, DEBUG, PROXY_SETTING, \
             AUTOPOSTPROCESSER_FREQUENCY, DEFAULT_AUTOPOSTPROCESSER_FREQUENCY, MIN_AUTOPOSTPROCESSER_FREQUENCY, \
             ANIME_DEFAULT, NAMING_ANIME, ANIMESUPPORT, USE_ANIDB, ANIDB_USERNAME, ANIDB_PASSWORD, ANIDB_USE_MYLIST, \
-            ANIME_SPLIT_HOME, SCENE_DEFAULT, PLAY_VIDEOS
+            ANIME_SPLIT_HOME, SCENE_DEFAULT, PLAY_VIDEOS, BACKLOG_DAYS
 
         if __INITIALIZED__:
             return False
@@ -661,6 +667,7 @@ def initialize(consoleLogging=True):
         if DAILYSEARCH_FREQUENCY < MIN_DAILYSEARCH_FREQUENCY:
             DAILYSEARCH_FREQUENCY = MIN_DAILYSEARCH_FREQUENCY
 
+        MIN_BACKLOG_FREQUENCY = get_backlog_cycle_time()
         BACKLOG_FREQUENCY = check_setting_int(CFG, 'General', 'backlog_frequency', DEFAULT_BACKLOG_FREQUENCY)
         if BACKLOG_FREQUENCY < MIN_BACKLOG_FREQUENCY:
             BACKLOG_FREQUENCY = MIN_BACKLOG_FREQUENCY
@@ -668,6 +675,8 @@ def initialize(consoleLogging=True):
         UPDATE_FREQUENCY = check_setting_int(CFG, 'General', 'update_frequency', DEFAULT_UPDATE_FREQUENCY)
         if UPDATE_FREQUENCY < MIN_UPDATE_FREQUENCY:
             UPDATE_FREQUENCY = MIN_UPDATE_FREQUENCY
+
+        BACKLOG_DAYS = check_setting_int(CFG, 'General', 'backlog_days', 7)
 
         NZB_DIR = check_setting_str(CFG, 'Blackhole', 'nzb_dir', '')
         TORRENT_DIR = check_setting_str(CFG, 'Blackhole', 'torrent_dir', '')
@@ -1402,6 +1411,8 @@ def save_config():
     new_config['General']['metadata_wdtv'] = METADATA_WDTV
     new_config['General']['metadata_tivo'] = METADATA_TIVO
     new_config['General']['metadata_mede8er'] = METADATA_MEDE8ER
+
+    new_config['General']['backlog_days'] = int(BACKLOG_DAYS)
 
     new_config['General']['cache_dir'] = ACTUAL_CACHE_DIR if ACTUAL_CACHE_DIR else 'cache'
     new_config['General']['root_dirs'] = ROOT_DIRS if ROOT_DIRS else ''
