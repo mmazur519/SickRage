@@ -25,6 +25,7 @@ import re
 import glob
 import stat
 import traceback
+import shutil
 
 import sickbeard
 
@@ -1004,7 +1005,7 @@ class TVShow(object):
                     except:
                         logger.log(u'Cannot change permissions of ' + self.location, logger.WARNING)
 
-                ek.ek(os.rmdir, self.location)
+                ek.ek(shutil.rmtree, self.location)
             except OSError, e:
                 logger.log(u"Unable to delete " + self.location + ": " + repr(e) + " / " + str(e), logger.WARNING)
 
@@ -2341,6 +2342,8 @@ class TVEpisode(object):
                 pattern = sickbeard.NAMING_ABD_PATTERN
             elif self.show.sports and sickbeard.NAMING_CUSTOM_SPORTS and not self.relatedEps:
                 pattern = sickbeard.NAMING_SPORTS_PATTERN
+            elif self.show.anime and sickbeard.NAMING_CUSTOM_ANIME:
+                pattern = sickbeard.NAMING_ANIME_PATTERN
             else:
                 pattern = sickbeard.NAMING_PATTERN
 
@@ -2363,6 +2366,8 @@ class TVEpisode(object):
                 pattern = sickbeard.NAMING_ABD_PATTERN
             elif self.show.sports and sickbeard.NAMING_CUSTOM_SPORTS and not self.relatedEps:
                 pattern = sickbeard.NAMING_SPORTS_PATTERN
+            elif self.show.anime and sickbeard.NAMING_CUSTOM_ANIME:
+                pattern = sickbeard.NAMING_ANIME_PATTERN
             else:
                 pattern = sickbeard.NAMING_PATTERN
 
